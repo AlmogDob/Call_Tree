@@ -9,7 +9,7 @@ Given:
 - an entry C file
 - a function name
 
-`calltree`:
+`call tree`:
 - discovers project-local files from `#include "..."` directives
 - lexes and indexes function definitions
 - finds the requested function
@@ -45,4 +45,4 @@ This is not a full C parser, so some cases may be missed or approximated:
 ## Example
 
 ```bash
-calltree src/main.c my_function
+call_tree src/main.c my_function
