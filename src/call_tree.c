@@ -284,7 +284,7 @@ bool lex_entire_file_recursively(struct Lexed_Files *lexed_files, char *path)
         al_dprintERROR("Inputted path is not absolute '%s'.", path);
         return FAIL;
     }
-    if (FAIL == path_is_directory(path)) {
+    if (SUCCESS == path_is_directory(path)) {
         al_dprintERROR("Expected a file, but got a directory: '%s'.", path);
         return FAIL;
     }
