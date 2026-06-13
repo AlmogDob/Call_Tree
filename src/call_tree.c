@@ -100,10 +100,6 @@ bool path_is_absolute(const char *path)
     if (path == NULL || path[0] == '\0') {
         return FAIL;
     }
-    if (FAIL == path_exists(path)) {
-        al_dprintERROR("Path does not exists '%s'", path);
-        return FAIL;
-    }
 
     #ifdef _WIN32
         /** Examples of absolute paths on Windows:
@@ -137,7 +133,7 @@ bool path_is_absolute(const char *path)
         if (path[0] == '/') {
             return SUCCESS;
         } else {
-            return FAIL
+            return FAIL;
         }
     #endif
 }
@@ -174,7 +170,20 @@ bool path_is_valid_file(const char *path)
 
 void join_two_paths(char *des, char *p1, char *p2) 
 {
-    snprintf(des, ASM_MAX_LEN, "%s%c%s", p1, DIR_SEPARATOR, p2);
+    size_t p1_len = asm_length(p1);
+    size_t p2_len = asm_length(p2);
+    if (p1_len == 0) {
+        asm_strncpy(des, p2, ASM_MAX_LEN);
+    } else if (p2_len == 0) {
+        asm_strncpy(des, p1, ASM_MAX_LEN);
+    } else if (SUCCESS == path_is_absolute(p2)) {
+        al_dprintWARNING("p2 is absolute. p2 = '%s'", p2);
+    } else if (p1[p1_len-1] == DIR_SEPARATOR) {
+        snprintf(des, ASM_MAX_LEN, "%s%s", p1, p2);
+    } else {
+        snprintf(des, ASM_MAX_LEN, "%s%c%s", p1, DIR_SEPARATOR, p2);
+    }
+
 }
 
 bool directory_get_from_path(char *dir_des, char *path) 
@@ -267,11 +276,15 @@ bool path_is_in_lexed_files(struct Lexed_Files lexed_files, char *path)
 
 bool lex_entire_file_recursively(struct Lexed_Files *lexed_files, char *path)
 {
+    if (FAIL == path_exists(path)) {
+        al_dprintERROR("Path does not exist: '%s'", path);
+        return FAIL;
+    }
     if (FAIL == path_is_absolute(path)) {
         al_dprintERROR("Inputted path is not absolute '%s'.", path);
         return FAIL;
     }
-    if (path_is_directory(path)) {
+    if (FAIL == path_is_directory(path)) {
         al_dprintERROR("Expected a file, but got a directory: '%s'.", path);
         return FAIL;
     }
@@ -349,6 +362,6 @@ int main(int argc, char const *argv[])
     
 
 
-
+    AL_FREE(lexed_files.elements);
     return 0;
 }
