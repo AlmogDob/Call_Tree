@@ -101,6 +101,7 @@ bool path_is_absolute(const char *path)
         return FAIL;
     }
     if (FAIL == path_exists(path)) {
+        al_dprintERROR("Path does not exists '%s'", path);
         return FAIL;
     }
 
@@ -253,6 +254,53 @@ bool includes_path_get_from_lexed_file(struct Word_array *include_paths, struct 
     return SUCCESS;
 }
 
+bool path_is_in_lexed_files(struct Lexed_Files lexed_files, char *path)
+{
+    for (size_t i = 0; i < lexed_files.length; i++) {
+        if (asm_strncmp(path, lexed_files.elements[i].file_path, ASM_MAX_LEN)) {
+            return SUCCESS;
+        }
+    }
+
+    return FAIL;
+}
+
+bool lex_entire_file_recursively(struct Lexed_Files *lexed_files, char *path)
+{
+    if (FAIL == path_is_absolute(path)) {
+        al_dprintERROR("Inputted path is not absolute '%s'.", path);
+        return FAIL;
+    }
+    if (path_is_directory(path)) {
+        al_dprintERROR("Expected a file, but got a directory: '%s'.", path);
+        return FAIL;
+    }
+    struct Tokens tokens = al_lex_entire_file(path);
+    ada_appand(struct Tokens, *lexed_files, tokens);
+    struct Word_array nested_include_paths = {0};
+    if (FAIL == includes_path_get_from_lexed_file(&nested_include_paths, tokens)) {
+        al_dprintERROR("Could not get includes path from file '%s'.", tokens.file_path);
+        AL_FREE(nested_include_paths.elements);
+        return FAIL;
+    }
+    for (size_t i = 0; i < nested_include_paths.length; i++) {
+        if (FAIL == path_is_in_lexed_files(*lexed_files, nested_include_paths.elements[i])) {
+            if (FAIL == lex_entire_file_recursively(lexed_files, nested_include_paths.elements[i])) {
+                al_dprintERROR("Could not lex recursively file '%s'.", nested_include_paths.elements[i]);
+                AL_FREE(nested_include_paths.elements);
+                return FAIL;
+            }
+        } else {
+            al_dprintWARNING("Detected repeated inclusion. File: '%s' includes '%s' that was already incountred.", path, nested_include_paths.elements[i]);
+        }
+    }
+    // al_dprintINFO("In file %s:", path);
+    // word_array_print(nested_include_paths);
+
+    AL_FREE(nested_include_paths.elements);
+    return SUCCESS;
+}
+
 int main(int argc, char const *argv[])
 {
     if (argc != 3) {
@@ -289,24 +337,16 @@ int main(int argc, char const *argv[])
 
     struct Lexed_Files lexed_files = {0};
     ada_init_array(struct Tokens, lexed_files);
-    struct Tokens tokens = al_lex_entire_file((char *)entry_file_absolute_path);
-    ada_appand(struct Tokens, lexed_files, tokens);
 
-    asm_dprintSTRING(lexed_files.elements[0].file_path);
-
-    struct Word_array include_paths = {0};
-    includes_path_get_from_lexed_file(&include_paths, lexed_files.elements[lexed_files.length-1]);
-    word_array_print(include_paths);
+    if (FAIL == lex_entire_file_recursively(&lexed_files, entry_file_absolute_path)) {
+        al_dprintERROR("Could not lex recursively file '%s'.", entry_file_absolute_path);
+        return -1;
+    }
+    al_dprintSIZE_T(lexed_files.length);
+    for (size_t i = 0; i < lexed_files.length; i++) {
+        printf("%*s%zu: %s\n", 7, "", i, lexed_files.elements[i].file_path);
+    }
     
-    tokens = al_lex_entire_file((char *)include_paths.elements[0]);
-    ada_appand(struct Tokens, lexed_files, tokens);
-    struct Word_array nested_include_paths = {0};
-    includes_path_get_from_lexed_file(&nested_include_paths, lexed_files.elements[lexed_files.length-1]);
-    word_array_print(nested_include_paths);
-
-
-
-    AL_FREE(include_paths.elements);
 
 
 
