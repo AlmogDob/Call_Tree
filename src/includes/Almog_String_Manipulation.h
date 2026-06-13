@@ -1209,9 +1209,9 @@ int asm_strncmp(const char *s1, const char *s2, const size_t N)
  */
 int asm_strncpy(char * const s1, const char * const s2, const size_t N)
 {
-    size_t len2 = asm_length(s2);
+    if (N == 0) return 0;
 
-    size_t n = N < len2 ? N : len2;
+    size_t n = N > ASM_MAX_LEN - 1 ? ASM_MAX_LEN - 1 : N;
 
     size_t i;
     for (i = 0; i < n; i++) {

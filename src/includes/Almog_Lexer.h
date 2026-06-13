@@ -19,6 +19,9 @@
 #include "Almog_String_Manipulation.h"
 #include "Almog_Dynamic_Array.h"
 
+#include <string.h>
+#include <errno.h>
+
 /**
  * @def AL_ASSERT
  * @brief Assertion macro used by the lexer (defaults to @c assert()).
@@ -351,9 +354,81 @@ static const char * const keywords[] = {
  */
 #define AL_UNUSED(x) (void)x
 
+/**
+ * @name Debug-print helpers
+ * @brief Convenience macros for diagnostic output.
+ *
+ * The typed variants print to stdout. The INFO/WARNING/ERROR variants print to
+ * stderr and include file, line, and function information.
+ */
+#define al_dprintSTRING(expr) printf("[Info] %s:%d:\n%*s" #expr " = %s\n", __FILE__, __LINE__, 7, "", expr)
+/**
+ * @name Debug-print helpers
+ * @brief Convenience macros for diagnostic output.
+ *
+ * The typed variants print to stdout. The INFO/WARNING/ERROR variants print to
+ * stderr and include file, line, and function information.
+ */
+#define al_dprintCHAR(expr) printf("[Info] %s:%d:\n%*s" #expr " = %c\n", __FILE__, __LINE__, 7, "", expr)
+/**
+ * @name Debug-print helpers
+ * @brief Convenience macros for diagnostic output.
+ *
+ * The typed variants print to stdout. The INFO/WARNING/ERROR variants print to
+ * stderr and include file, line, and function information.
+ */
+#define al_dprintINT(expr) printf("[Info] %s:%d:\n%*s" #expr " = %d\n", __FILE__, __LINE__, 7, "", expr)
+/**
+ * @name Debug-print helpers
+ * @brief Convenience macros for diagnostic output.
+ *
+ * The typed variants print to stdout. The INFO/WARNING/ERROR variants print to
+ * stderr and include file, line, and function information.
+ */
+#define al_dprintFLOAT(expr) printf("[Info] %s:%d:\n%*s" #expr " = %#f\n", __FILE__, __LINE__, 7, "", expr)
+/**
+ * @name Debug-print helpers
+ * @brief Convenience macros for diagnostic output.
+ *
+ * The typed variants print to stdout. The INFO/WARNING/ERROR variants print to
+ * stderr and include file, line, and function information.
+ */
+#define al_dprintDOUBLE(expr) printf("[Info] %s:%d:\n%*s" #expr " = %#g\n", __FILE__, __LINE__, 7, "", expr)
+/**
+ * @name Debug-print helpers
+ * @brief Convenience macros for diagnostic output.
+ *
+ * The typed variants print to stdout. The INFO/WARNING/ERROR variants print to
+ * stderr and include file, line, and function information.
+ */
+#define al_dprintSIZE_T(expr) printf("[Info] %s:%d:\n%*s" #expr " = %zu\n", __FILE__, __LINE__, 7, "", expr)
+/**
+ * @name Debug-print helpers
+ * @brief Convenience macros for diagnostic output.
+ *
+ * The typed variants print to stdout. The INFO/WARNING/ERROR variants print to
+ * stderr and include file, line, and function information.
+ */
+#define al_dprintINFO(fmt, ...) \
+    fprintf(stderr, "[Info] %s:%d:\n%*sIn function '%s':\n%*s" fmt "\n", __FILE__, __LINE__, 7, "", __func__, 7, "", __VA_ARGS__)
+/**
+ * @name Debug-print helpers
+ * @brief Convenience macros for diagnostic output.
+ *
+ * The typed variants print to stdout. The INFO/WARNING/ERROR variants print to
+ * stderr and include file, line, and function information.
+ */
+#define al_dprintWARNING(fmt, ...) \
+    fprintf(stderr, "[Warning] %s:%d:\n%*sIn function '%s':\n%*s" fmt "\n", __FILE__, __LINE__, 10, "", __func__, 10, "", __VA_ARGS__)
+/**
+ * @name Debug-print helpers
+ * @brief Convenience macros for diagnostic output.
+ *
+ * The typed variants print to stdout. The INFO/WARNING/ERROR variants print to
+ * stderr and include file, line, and function information.
+ */
 #define al_dprintERROR(fmt, ...) \
-    fprintf(stderr, "\n%s:%d:\n[Error] in function '%s':\n        " \
-    fmt "\n\n", __FILE__, __LINE__, __func__, __VA_ARGS__)
+    fprintf(stderr, "[Error] %s:%d:\n%*sIn function '%s':\n%*s" fmt "\n", __FILE__, __LINE__, 8, "", __func__, 8, "", __VA_ARGS__)
 
 bool            al_is_identifier(char c);
 bool            al_is_identifier_start(char c);
@@ -406,7 +481,8 @@ struct Tokens al_lex_entire_file(char *file_path)
 {
     FILE *fp = fopen(file_path, "r");
     if (!fp) {
-        al_dprintERROR("Could not open file '%s'\n", file_path);
+        int err = errno;
+        al_dprintERROR( "Cannot open file %s: %s", file_path, strerror(err));
         exit(1);
     }
 
@@ -421,6 +497,7 @@ struct Tokens al_lex_entire_file(char *file_path)
         }
         ada_appand(char, tokens.content, '\n');
     }
+    fclose(fp);
 
     struct Lexer l = al_lexer_alloc(tokens.content.elements, tokens.content.length);
 

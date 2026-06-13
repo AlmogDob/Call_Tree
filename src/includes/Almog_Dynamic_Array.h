@@ -125,10 +125,10 @@
  * @note Allocation uses ADA_MALLOC and is checked via ADA_ASSERT.
  */
 #define ada_init_array(type, header) do {                                       \
-        header.capacity = ADA_INIT_CAPACITY;                                        \
-        header.length = 0;                                                      \
-        header.elements = (type *)ADA_MALLOC(sizeof(type) * header.capacity);   \
-        ADA_ASSERT(header.elements != NULL);                                    \
+        (header).capacity = ADA_INIT_CAPACITY;                                        \
+        (header).length = 0;                                                      \
+        (header).elements = (type *)ADA_MALLOC(sizeof(type) * (header).capacity);   \
+        ADA_ASSERT((header).elements != NULL);                                    \
     } while (0)
 
     /**
@@ -148,13 +148,13 @@
  * @note Reallocation uses ADA_REALLOC and is also checked via ADA_ASSERT.
  */
 #define ada_resize(type, header, new_capacity) do {                                                         \
-        type *ada_temp_pointer = (type *)ADA_REALLOC((void *)(header.elements), new_capacity*sizeof(type)); \
+        type *ada_temp_pointer = (type *)ADA_REALLOC((void *)((header).elements), new_capacity*sizeof(type)); \
         if (ada_temp_pointer == NULL) {                                                                     \
             ADA_EXIT(1);                                                                                        \
         }                                                                                                   \
-        header.elements = ada_temp_pointer;                                                                 \
-        ADA_ASSERT(header.elements != NULL);                                                                \
-        header.capacity = new_capacity;                                                                     \
+        (header).elements = ada_temp_pointer;                                                                 \
+        ADA_ASSERT((header).elements != NULL);                                                                \
+        (header).capacity = new_capacity;                                                                     \
     } while (0)
 
 /**
@@ -174,11 +174,11 @@
  *       at least 1 if you customize this macro.
  */
 #define ada_appand(type, header, value) do {                                            \
-        if (header.length >= header.capacity) {                                         \
-            ada_resize(type, header, (int)(header.capacity + header.capacity/2 + 1));   \
+        if ((header).length >= (header).capacity) {                                         \
+            ada_resize(type, (header), (int)((header).capacity + (header).capacity/2 + 1));   \
         }                                                                               \
-        header.elements[header.length] = value;                                         \
-        header.length++;                                                                \
+        (header).elements[(header).length] = value;                                         \
+        (header).length++;                                                                \
     } while (0)
 
 /**
@@ -203,11 +203,11 @@
 #define ada_insert(type, header, value, index) do {                                                             \
     ADA_ASSERT((int)(index) >= 0);                                                                              \
     ADA_ASSERT((float)(index) - (int)(index) == 0);                                                             \
-    ada_appand(type, header, header.elements[header.length-1]);                                                 \
-    for (int ada_for_loop_index = header.length-2; ada_for_loop_index > (int)(index); ada_for_loop_index--) {   \
-        header.elements[ada_for_loop_index] = header.elements [ada_for_loop_index-1];                           \
+    ada_appand(type, (header), (header).elements[(header).length-1]);                                                 \
+    for (int ada_for_loop_index = (header).length-2; ada_for_loop_index > (int)(index); ada_for_loop_index--) {   \
+        (header).elements[ada_for_loop_index] = (header).elements [ada_for_loop_index-1];                           \
     }                                                                                                           \
-    header.elements[(index)] = value;                                                                           \
+    (header).elements[(index)] = value;                                                                           \
 } while (0)
 
 
@@ -229,11 +229,11 @@
 #define ada_insert_unordered(type, header, value, index) do {   \
     ADA_ASSERT((int)(index) >= 0);                              \
     ADA_ASSERT((float)(index) - (int)(index) == 0);             \
-    if ((size_t)(index) == header.length) {                     \
-        ada_appand(type, header, value);                        \
+    if ((size_t)(index) == (header).length) {                     \
+        ada_appand(type, (header), value);                        \
     } else {                                                    \
-        ada_appand(type, header, header.elements[(index)]);     \
-        header.elements[(index)] = value;                       \
+        ada_appand(type, (header), (header).elements[(index)]);     \
+        (header).elements[(index)] = value;                       \
     }                                                           \
 } while (0)
 
@@ -253,10 +253,10 @@
 #define ada_remove(type, header, index) do {                                                                \
     ADA_ASSERT((int)(index) >= 0);                                                                          \
     ADA_ASSERT((float)(index) - (int)(index) == 0);                                                         \
-    for (size_t ada_for_loop_index = (index); ada_for_loop_index < header.length-1; ada_for_loop_index++) { \
-        header.elements[ada_for_loop_index] = header.elements[ada_for_loop_index+1];                        \
+    for (size_t ada_for_loop_index = (index); ada_for_loop_index < (header).length-1; ada_for_loop_index++) { \
+        (header).elements[ada_for_loop_index] = (header).elements[ada_for_loop_index+1];                        \
     }                                                                                                       \
-    header.length--;                                                                                        \
+    (header).length--;                                                                                        \
 } while (0)
 
 /**
@@ -274,8 +274,8 @@
 #define ada_remove_unordered(type, header, index) do {          \
     ADA_ASSERT((int)(index) >= 0);                              \
     ADA_ASSERT((float)(index) - (int)(index) == 0);             \
-    header.elements[index] = header.elements[header.length-1];  \
-    header.length--;                                            \
+    (header).elements[index] = (header).elements[(header).length-1];  \
+    (header).length--;                                            \
 } while (0)
 
 
