@@ -34,11 +34,17 @@ set "CLEANONLY=0"
 set "RELEASE=0"
 set "HELP=0"
 set "FILES="
-set "INPUT_ARG="
+set "RUN_ARGS="
+set "INPUT_SEEN=0"
 
 :parse
 if "%~1"=="" goto doneparse
 
+if "%INPUT_SEEN%"=="1" (
+  set "RUN_ARGS=!RUN_ARGS! "%~1""
+  shift
+  goto parse
+)
 if /i "%~1"=="--no-clean"   (set "NOCLEAN=1"   & shift & goto parse)
 if /i "%~1"=="-nc"          (set "NOCLEAN=1"   & shift & goto parse)
 if /i "%~1"=="--build-only" (set "BUILDONLY=1" & shift & goto parse)
@@ -52,24 +58,12 @@ if /i "%~1"=="-t"           (set "TIMEIT=1"    & shift & goto parse)
 if /i "%~1"=="--help"       (set "HELP=1"      & shift & goto parse)
 if /i "%~1"=="-h"           (set "HELP=1"      & shift & goto parse)
 if /i "%~1"=="--input" (
-  if "%~2"=="" (
-    set "FAIL_RC=1"
-    set "FAIL_MSG=--input requires an argument."
-    goto fail
-  )
-  set "INPUT_ARG=%~2"
-  shift
+  set "INPUT_SEEN=1"
   shift
   goto parse
 )
 if /i "%~1"=="-i" (
-  if "%~2"=="" (
-    set "FAIL_RC=1"
-    set "FAIL_MSG=-i requires an argument."
-    goto fail
-  )
-  set "INPUT_ARG=%~2"
-  shift
+  set "INPUT_SEEN=1"
   shift
   goto parse
 )
@@ -80,6 +74,12 @@ shift
 goto parse
 
 :doneparse
+
+if "%INPUT_SEEN%"=="1" if not defined RUN_ARGS (
+  set "FAIL_RC=1"
+  set "FAIL_MSG=-i/--input requires at least one argument."
+  goto fail
+)
 
 REM ============================================================
 REM Select build mode flags
@@ -246,10 +246,10 @@ cl.exe %CWARN% %CCHECK% %CSTD% "%SRC%" ^
 set "RC=%errorlevel%"
 
 REM Copy ASan runtime DLL if present (path comes from the MSVC env)
-set "ASAN_DLL=%VCToolsInstallDir%bin\Hostx64\x64\clang_rt.asan_dynamic-x86_64.dll"
-if exist "%ASAN_DLL%" (
-  copy /y "%ASAN_DLL%" "%BUILDDIR%" >nul
-)
+@REM set "ASAN_DLL=%VCToolsInstallDir%bin\Hostx64\x64\clang_rt.asan_dynamic-x86_64.dll"
+@REM if exist "%ASAN_DLL%" (
+@REM   copy /y "%ASAN_DLL%" "%BUILDDIR%" >nul
+@REM )
 
 if not "%RC%"=="0" (
   endlocal
@@ -285,10 +285,10 @@ echo [INFO] running "%EXE%"
 echo.
 
 pushd "%BUILDDIR%" || (
-  e/ndlocal
+  endlocal
   set "FAIL_RC=1"
   set "FAIL_MSG=run: failed to change directory to "%BUILDDIR%"."
-  exit b 1
+  exit /b 1
 )
 
 call :invoke_exe "%EXE%"
@@ -310,8 +310,8 @@ if "%TIMEIT%"=="1" goto invoke_timed
 goto invoke_normal
 
 :invoke_normal
-if not defined INPUT_ARG goto invoke_no_arg
-"%~1" "%INPUT_ARG%"
+if not defined RUN_ARGS goto invoke_no_arg
+"%~1" %RUN_ARGS%
 exit /b %errorlevel%
 
 :invoke_no_arg
@@ -319,11 +319,11 @@ exit /b %errorlevel%
 exit /b %errorlevel%
 
 :invoke_timed
-if not defined INPUT_ARG goto invoke_timed_no_arg
+if not defined RUN_ARGS goto invoke_timed_no_arg
 
 powershell -NoProfile -Command ^
   "$sw = [System.Diagnostics.Stopwatch]::StartNew(); " ^
-  "& '.\%~1' '%INPUT_ARG%'; " ^
+  "& '.\%~1' %RUN_ARGS%; " ^
   "$rc = $LASTEXITCODE; " ^
   "$sw.Stop(); " ^
   "Write-Host ''; " ^
@@ -377,11 +377,11 @@ exit /b %FAIL_RC%
 echo Usage: %~nx0 ^<file1.c^> [file2.c ...] [options]
 echo.
 echo Options:
-echo   --help, -h           Show this help message
-echo   --input, -i "args"   Pass a single argument string to the program
-echo   --no-clean, -nc      Do not remove build artifacts after running
-echo   --build-only, -b     Build only, do not run
-echo   --clean-only, -c     Remove build artifacts only
-echo   --release, -r        Build in release mode
-echo   --time, -t           Time the program run
+echo   --help, -h                   Show this help message
+echo   --input, -i program_args...  Pass all remaining arguments to the built executable. Everything after -i or --input is forwarded as-is.
+echo   --no-clean, -nc              Do not remove build artifacts after running
+echo   --build-only, -b             Build only, do not run
+echo   --clean-only, -c             Remove build artifacts only
+echo   --release, -r                Build in release mode
+echo   --time, -t                   Time the program run
 exit /b 1
