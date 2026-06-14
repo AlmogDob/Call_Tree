@@ -1,12 +1,12 @@
 #define ALMOG_STRING_MANIPULATION_IMPLEMENTATION
 #define ALMOG_LEXER_IMPLEMENTATION
-#include "Almog_Lexer.h"
+#include "./includes/Almog_Lexer.h"
 
 int main(void)
 {
     struct Tokens tokens = al_lex_entire_file("../src/temp.c");
     
-    for (size_t i = 0; i < tokens.length; i++) {
+    for (size_t i = 0; ((i) < tokens.length); i++) {
         al_token_print(tokens.elements[i]);
     }
     asm_dprintSIZE_T(tokens.length);

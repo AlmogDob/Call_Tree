@@ -45,8 +45,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "Almog_Dynamic_Array.h"
-
 /**
  * @def ASM_MAX_LEN
  * @brief Maximum number of characters processed in some string operations.
