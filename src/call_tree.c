@@ -27,10 +27,11 @@
 typedef char Word[ASM_MAX_LEN];
 
 #define WORD_ARRAY_MAX_LEN 100
-struct Word_array {
+struct Word_Array {
     size_t length;
     Word *elements;
 };
+
 struct Lexed_Files {
     size_t length;
     size_t capacity;
@@ -49,9 +50,15 @@ struct Function_Definition {
     size_t RBRACE_index;
 };
 
-struct Word_array word_array_alloc() 
+struct Func_Def_Array {
+    size_t length;
+    size_t capacity;
+    struct Function_Definition *elements;
+};
+
+struct Word_Array word_array_alloc() 
 {
-    struct Word_array word_array = {
+    struct Word_Array word_array = {
         .length = 0,
         .elements = (Word *)AL_MALLOC(WORD_ARRAY_MAX_LEN * sizeof(Word))
     };
@@ -64,14 +71,14 @@ struct Word_array word_array_alloc()
 }
 
 #define word_array_print(word_array) al_dprintINFO("%s = ", #word_array); word_array_print_imp(word_array, 7)
-void word_array_print_imp(struct Word_array wa, size_t padding)
+void word_array_print_imp(struct Word_Array wa, size_t padding)
 {
     for (size_t i = 0; i < wa.length; i++) {
         printf("%*.s%s\n", (int)padding, "", wa.elements[i]);
     }
 }
 
-#define function_definition_print(tokens, func_def) al_dprintINFO("%s = ", #func_def); function_definition_print_imp(tokens, func_def, 7)
+#define function_definition_print(tokens, func_def) al_dprintINFO("%s = ", #func_def); function_definition_print_imp(tokens, func_def, 11)
 void function_definition_print_imp(struct Tokens tokens, struct Function_Definition func_def, size_t padding)
 {
     printf("%*.sname              -> %s\n", (int)padding, "", func_def.name);
@@ -89,6 +96,18 @@ void function_definition_print_imp(struct Tokens tokens, struct Function_Definit
     al_token_print(tokens.elements[func_def.LBRACE_index]);
     printf("%*.sRBRACE index      -> %-4zu = ", (int)padding, "", func_def.RBRACE_index);
     al_token_print(tokens.elements[func_def.RBRACE_index]);
+}
+
+#define func_def_array_print(func_def_array) al_dprintINFO("%s = ", #func_def_array); func_def_array_print_imp(func_def_array, 11)
+void func_def_array_print_imp (struct Func_Def_Array func_def_array, size_t padding)
+{
+    for (size_t i = 0; i < func_def_array.length; i++) {
+        struct Function_Definition func_def = func_def_array.elements[i];
+        printf("%*.sFunc No.%zu:\n", (int)padding, "", i);
+        printf("%*.s    name       -> %s\n", (int)padding, "", func_def.name);
+        printf("%*.s    file name  -> %s\n", (int)padding, "", func_def.file_name);
+        printf("%*.s    file index -> %d\n", (int)padding, "", func_def.file_index);
+    }
 }
 
 bool path_exists(const char *path)
@@ -170,16 +189,146 @@ bool path_is_absolute(const char *path)
     #endif
 }
 
-void path_fix(char *path)
+bool path_fix(char *path)
 {
-    size_t len = asm_length(path);
-    if (len == 0) return;
+    /* Written by AI */
+    if (path == NULL || path[0] == '\0') {
+        return FAIL;
+    }
 
+    size_t len = asm_length(path);
     for (size_t i = 0; i < len; i++) {
         if (path[i] == '\\' || path[i] == '/') {
             path[i] = DIR_SEPARATOR;
         }
     }
+
+    Word original;
+    Word result;
+    Word segment;
+    Word parts[WORD_ARRAY_MAX_LEN];
+
+    asm_strncpy(original, path, ASM_MAX_LEN);
+    result[0] = '\0';
+
+    size_t part_count = 0;
+    size_t i = 0;
+
+    bool is_absolute = false;
+
+    #ifdef _WIN32
+        bool has_drive = false;
+        char drive[4] = {0};
+
+        if (len >= 3 &&
+            asm_isalpha((unsigned char)original[0]) &&
+            original[1] == ':' &&
+            original[2] == DIR_SEPARATOR) {
+            has_drive = true;
+            is_absolute = true;
+            drive[0] = original[0];
+            drive[1] = ':';
+            drive[2] = DIR_SEPARATOR;
+            drive[3] = '\0';
+            i = 3;
+        } else if (len >= 2 &&
+                original[0] == DIR_SEPARATOR &&
+                original[1] == DIR_SEPARATOR) {
+            /* UNC path - this implementation preserves leading // but does not
+            fully validate/share-split UNC semantics */
+            is_absolute = true;
+            i = 2;
+        } else if (original[0] == DIR_SEPARATOR) {
+            is_absolute = true;
+            i = 1;
+        }
+    #else
+        if (original[0] == DIR_SEPARATOR) {
+            is_absolute = true;
+            i = 1;
+        }
+    #endif
+
+    while (i <= len) {
+        size_t j = 0;
+
+        while (i < len && original[i] == DIR_SEPARATOR) {
+            i++;
+        }
+
+        while (i < len && original[i] != DIR_SEPARATOR) {
+            if (j + 1 >= ASM_MAX_LEN) {
+                al_dprintERROR("%s", "Path segment too long.");
+                return FAIL;
+            }
+            segment[j++] = original[i++];
+        }
+        segment[j] = '\0';
+
+        if (j == 0) {
+            break;
+        }
+
+        if (asm_strncmp(segment, ".", ASM_MAX_LEN)) {
+            continue;
+        }
+
+        if (asm_strncmp(segment, "..", ASM_MAX_LEN)) {
+            if (part_count > 0 &&
+                !asm_strncmp(parts[part_count - 1], "..", ASM_MAX_LEN)) {
+                part_count--;
+            } else if (!is_absolute) {
+                if (part_count >= WORD_ARRAY_MAX_LEN) {
+                    al_dprintERROR("%s", "Too many path segments.");
+                    return FAIL;
+                }
+                asm_strncpy(parts[part_count++], segment, ASM_MAX_LEN);
+            }
+            continue;
+        }
+
+        if (part_count >= WORD_ARRAY_MAX_LEN) {
+            al_dprintERROR("%s", "Too many path segments.");
+            return FAIL;
+        }
+        asm_strncpy(parts[part_count++], segment, ASM_MAX_LEN);
+    }
+
+    #ifdef _WIN32
+        if (has_drive) {
+            asm_strncpy(result, drive, ASM_MAX_LEN);
+        } else if (is_absolute) {
+            result[0] = DIR_SEPARATOR;
+            result[1] = '\0';
+        }
+    #else
+        if (is_absolute) {
+            result[0] = DIR_SEPARATOR;
+            result[1] = '\0';
+        }
+    #endif
+
+    for (size_t k = 0; k < part_count; k++) {
+        if (asm_length(result) > 0 &&
+            result[asm_length(result) - 1] != DIR_SEPARATOR) {
+            char sep[2] = {DIR_SEPARATOR, '\0'};
+            asm_strncat(result, sep, 1);
+        }
+        asm_strncat(result, parts[k], ASM_MAX_LEN);
+    }
+
+    if (result[0] == '\0') {
+        if (is_absolute) {
+            result[0] = DIR_SEPARATOR;
+            result[1] = '\0';
+        } else {
+            result[0] = '.';
+            result[1] = '\0';
+        }
+    }
+
+    asm_strncpy(path, result, ASM_MAX_LEN);
+    return SUCCESS;
 }
 
 bool path_is_valid_file(const char *path)
@@ -216,6 +365,8 @@ void join_two_paths(char *des, char *p1, char *p2)
     } else {
         snprintf(des, ASM_MAX_LEN, "%s%c%s", p1, DIR_SEPARATOR, p2);
     }
+
+    path_fix(des);
 }
 
 bool directory_get_from_path(char *dir_des, char *path) 
@@ -243,10 +394,8 @@ bool directory_get_from_path(char *dir_des, char *path)
     return SUCCESS;
 }
 
-bool include_paths_get_from_tokens(struct Word_array *word_array, struct Tokens tokens)
+bool include_paths_get_from_tokens(struct Word_Array *word_array, struct Tokens tokens)
 {
-    *word_array = word_array_alloc();
-
     Word temp_word;
     Word current_directive;
     for (size_t i = 0; i < tokens.length; i++) {
@@ -259,7 +408,10 @@ bool include_paths_get_from_tokens(struct Word_array *word_array, struct Tokens 
                 if (current_directive[0] == '"') {
                     asm_get_token_and_cut(temp_word, current_directive, '"', false);
                     asm_get_token_and_cut(temp_word, current_directive, '"', false);
-                    path_fix(temp_word);
+                    if (FAIL == path_fix(temp_word)) {
+                        al_dprintERROR("Could not fix path '%s'.", temp_word);
+                        return FAIL;
+                    }
                     if (word_array->length < WORD_ARRAY_MAX_LEN) {
                         asm_strncpy(word_array->elements[word_array->length++], temp_word, ASM_MAX_LEN);
                     } else {
@@ -273,16 +425,19 @@ bool include_paths_get_from_tokens(struct Word_array *word_array, struct Tokens 
     return SUCCESS;
 }
 
-void word_array_add_prefix(struct Word_array word_array, char * prefix)
+void path_add_prefix(struct Word_Array path_array, char * prefix)
 {
-    for (size_t i = 0; i < word_array.length; i++) {
+    for (size_t i = 0; i < path_array.length; i++) {
         Word current_word;
-        asm_strncpy(current_word, word_array.elements[i], ASM_MAX_LEN);
-        snprintf(word_array.elements[i], ASM_MAX_LEN, "%s%s", prefix, current_word);
+        Word joined;
+
+        asm_strncpy(current_word, path_array.elements[i], ASM_MAX_LEN);
+        join_two_paths(joined, prefix, current_word);
+        asm_strncpy(path_array.elements[i], joined, ASM_MAX_LEN);
     }
 }
 
-bool includes_path_get_from_lexed_file(struct Word_array *include_paths, struct Tokens lexed_file)
+bool includes_path_get_from_lexed_file(struct Word_Array *include_paths, struct Tokens lexed_file)
 {
     include_paths_get_from_tokens(include_paths, lexed_file);
     Word entry_file_absolute_dir;
@@ -291,7 +446,7 @@ bool includes_path_get_from_lexed_file(struct Word_array *include_paths, struct 
         al_dprintERROR("Failed to get the absolute path of '%s'", lexed_file.file_path);
         return FAIL;
     }
-    word_array_add_prefix(*include_paths, entry_file_absolute_dir);
+    path_add_prefix(*include_paths, entry_file_absolute_dir);
 
     return SUCCESS;
 }
@@ -323,7 +478,8 @@ bool lex_entire_file_recursively(struct Lexed_Files *lexed_files, char *path)
     }
     struct Tokens tokens = al_lex_entire_file(path);
     ada_appand(struct Tokens, *lexed_files, tokens);
-    struct Word_array nested_include_paths = {0};
+    struct Word_Array nested_include_paths = {0};
+    nested_include_paths = word_array_alloc();
     if (FAIL == includes_path_get_from_lexed_file(&nested_include_paths, tokens)) {
         al_dprintERROR("Could not get includes path from file '%s'.", tokens.file_path);
         AL_FREE(nested_include_paths.elements);
@@ -337,7 +493,7 @@ bool lex_entire_file_recursively(struct Lexed_Files *lexed_files, char *path)
                 return FAIL;
             }
         } else {
-            al_dprintWARNING("Detected repeated inclusion. File: '%s' includes '%s' that was already incountred.", path, nested_include_paths.elements[i]);
+            al_dprintWARNING("Detected repeated inclusion. File: '%s' includes '%s' that was already encountered.", path, nested_include_paths.elements[i]);
         }
     }
     // al_dprintINFO("In file %s:", path);
@@ -347,10 +503,10 @@ bool lex_entire_file_recursively(struct Lexed_Files *lexed_files, char *path)
     return SUCCESS;
 }
 
-bool LPAREN_find_matching_RPAREN(struct Tokens tokens, size_t LPAREN_index, size_t *matching_RPAREN_index)
+bool LPAREN_find_matching_RPAREN(struct Tokens tokens, size_t LPAREN_index, size_t *matching_RPAREN_index, bool to_log)
 {
     if (tokens.elements[LPAREN_index].kind != TOKEN_LPAREN) {
-        al_dprintERROR("Inputted token index does not match a LPAREN. Token kind = %s", al_token_kind_name(tokens.elements[LPAREN_index].kind));
+        if (to_log) al_dprintERROR("Inputted token index does not match a LPAREN. Token kind = %s", al_token_kind_name(tokens.elements[LPAREN_index].kind));
         return FAIL;
     }
 
@@ -372,10 +528,10 @@ bool LPAREN_find_matching_RPAREN(struct Tokens tokens, size_t LPAREN_index, size
     return FAIL;
 }
 
-bool LBRACE_find_matching_RBRACE(struct Tokens tokens, size_t LBRACE_index, size_t *matching_RBRACE_index)
+bool LBRACE_find_matching_RBRACE(struct Tokens tokens, size_t LBRACE_index, size_t *matching_RBRACE_index, bool to_log)
 {
     if (tokens.elements[LBRACE_index].kind != TOKEN_LBRACE) {
-        al_dprintERROR("Inputted token index does not match a LBRACE. Token kind = %s", al_token_kind_name(tokens.elements[LBRACE_index].kind));
+        if (to_log) al_dprintERROR("Inputted token index does not match a LBRACE. Token kind = %s", al_token_kind_name(tokens.elements[LBRACE_index].kind));
         return FAIL;
     }
 
@@ -397,28 +553,29 @@ bool LBRACE_find_matching_RBRACE(struct Tokens tokens, size_t LBRACE_index, size
     return FAIL;
 }
 
-bool token_sequence_at_start_index_is_function_definition(struct Tokens tokens, size_t start_index, struct Function_Definition *func_def) {
+bool token_sequence_at_start_index_is_function_definition(struct Tokens tokens, size_t start_index, struct Function_Definition *func_def, bool to_log) {
     if (start_index + 1 >= tokens.length) {
-        al_dprintERROR("Start index + 1 (%zu) is bigger than tokens.length %zu.", start_index + 1, tokens.length);
+        if (to_log) al_dprintERROR("Start index + 1 (%zu) is bigger than tokens.length %zu.", start_index + 1, tokens.length);
         return FAIL;
     }
+
     struct Token start_token = tokens.elements[start_index];
     if (start_token.kind != TOKEN_IDENTIFIER) {
-        al_dprintERROR("Token at start index (%zu) of file '%s' is not an IDENTIFIER."
+        if (to_log) al_dprintERROR("Token at start index (%zu) of file '%s' is not an IDENTIFIER."
             " The token at index %zu: %4zu:%-3zu:(%-19s) -> \"%.*s\".", start_index, tokens.file_path, start_index, start_token.location.line_num,
             start_token.location.col, al_token_kind_name(start_token.kind), (int)start_token.text_len, start_token.text);
         return FAIL;
     }
     struct Token start_p1_token = tokens.elements[start_index + 1];
     if (start_p1_token.kind != TOKEN_LPAREN) {
-        al_dprintERROR("Token at start index + 1 (%zu) of file '%s' is not an LPAREN."
+        if (to_log) al_dprintERROR("Token at start index + 1 (%zu) of file '%s' is not an LPAREN."
             "The token at index %zu: %4zu:%-3zu:(%-19s) -> \"%.*s\".", start_index + 1, tokens.file_path, start_index + 1, start_p1_token.location.line_num,
             start_p1_token.location.col, al_token_kind_name(start_p1_token.kind), (int)start_p1_token.text_len, start_p1_token.text);
         return FAIL;
     }
     size_t matching_RPAREN_index = 0, LPAREN_index = start_index + 1;
-    if (FAIL == LPAREN_find_matching_RPAREN(tokens, LPAREN_index, &matching_RPAREN_index)) {
-        al_dprintERROR("Could not find matching RPAREN for the token at index %zu of file '%s'."
+    if (FAIL == LPAREN_find_matching_RPAREN(tokens, LPAREN_index, &matching_RPAREN_index, to_log)) {
+        if (to_log) al_dprintERROR("Could not find matching RPAREN for the token at index %zu of file '%s'."
             "The token at index %zu: %4zu:%-3zu:(%-19s) -> \"%.*s\".",LPAREN_index, tokens.file_path, LPAREN_index,
             tokens.elements[LPAREN_index].location.line_num, tokens.elements[LPAREN_index].location.col,
             al_token_kind_name(tokens.elements[LPAREN_index].kind), (int)tokens.elements[LPAREN_index].text_len,
@@ -427,11 +584,11 @@ bool token_sequence_at_start_index_is_function_definition(struct Tokens tokens, 
     }
     size_t matching_RBRACE_index = 0, LBRACE_index = matching_RPAREN_index + 1;
     if (LBRACE_index >= tokens.length) {
-        al_dprintERROR("LBRACE index (%zu) is bigger than tokens.length %zu.", LBRACE_index, tokens.length);
+        if (to_log) al_dprintERROR("LBRACE index (%zu) is bigger than tokens.length %zu.", LBRACE_index, tokens.length);
         return FAIL;
     }
-    if (FAIL == LBRACE_find_matching_RBRACE(tokens, LBRACE_index, &matching_RBRACE_index)) {
-        al_dprintERROR("Could not find matching RBRACE for the token at index %zu of file '%s'."
+    if (FAIL == LBRACE_find_matching_RBRACE(tokens, LBRACE_index, &matching_RBRACE_index, to_log)) {
+        if (to_log) al_dprintERROR("Could not find matching RBRACE for the token at index %zu of file '%s'."
             "The token at index %zu: %4zu:%-3zu:(%-19s) -> \"%.*s\".", LBRACE_index, tokens.file_path, LBRACE_index,
             tokens.elements[LBRACE_index].location.line_num, tokens.elements[LBRACE_index].location.col,
             al_token_kind_name(tokens.elements[LBRACE_index].kind), (int)tokens.elements[LBRACE_index].text_len,
@@ -450,6 +607,36 @@ bool token_sequence_at_start_index_is_function_definition(struct Tokens tokens, 
         func_def->LBRACE_index = LBRACE_index;
         func_def->RBRACE_index = matching_RBRACE_index;
     };
+
+    return SUCCESS;
+}
+
+bool func_def_array_get_from_lexed_files_index(struct Lexed_Files lexed_files, size_t file_index, struct Func_Def_Array *func_def_array)
+{
+    if (file_index >= lexed_files.length) {
+        al_dprintERROR("File index %zu is bigger the number of lexed files %zu", file_index, lexed_files.length);
+        return FAIL;
+    }
+    struct Tokens tokens = lexed_files.elements[file_index];
+    for (size_t i = 0; i < tokens.length; i++) {
+        struct Function_Definition current_func = {0};
+        if (SUCCESS == token_sequence_at_start_index_is_function_definition(tokens, i, &current_func, false)) {
+            current_func.file_index = (int)file_index;
+            if (func_def_array) ada_appand(struct Function_Definition, *func_def_array, current_func);
+        }
+    }
+
+    return SUCCESS;
+}
+
+bool lexed_files_get_function_definitions(struct Lexed_Files lexed_files, struct Func_Def_Array *func_def_array)
+{
+    for (size_t i = 0; i < lexed_files.length; i++) {
+        if (FAIL == func_def_array_get_from_lexed_files_index(lexed_files, i, func_def_array)) {
+            al_dprintERROR("Could not get function definition from lexed file at index %zu '%s'.", i, lexed_files.elements[i].file_path);
+            return FAIL;
+        }
+    }
 
     return SUCCESS;
 }
@@ -505,28 +692,20 @@ int main(int argc, char const *argv[])
     }
 
     printf("----------------------------------------\n");
-    struct Tokens current_tokens = lexed_files.elements[0];
-    // for (size_t i = 0; i < current_tokens.length; i++) {
-    //     printf("%3zu -> ", i); al_token_print(current_tokens.elements[i]);
-    // }
 
-    struct Function_Definition func_def = {0};
-    size_t func_def_index = 4;
-    if (FAIL == token_sequence_at_start_index_is_function_definition(current_tokens, func_def_index, &func_def)) {
-        al_dprintERROR("Could not get function definition from file '%s' at token:"
-            " %zu: %4zu:%-3zu:(%-19s) -> \"%.*s\".", current_tokens.file_path, func_def_index,
-            current_tokens.elements[func_def_index].location.line_num, current_tokens.elements[func_def_index].location.col,
-            al_token_kind_name(current_tokens.elements[func_def_index].kind), (int)current_tokens.elements[func_def_index].text_len,
-            current_tokens.elements[func_def_index].text);
+    struct Func_Def_Array func_def_array = {0};
+    ada_init_array(struct Function_Definition, func_def_array);
+    if (FAIL == lexed_files_get_function_definitions(lexed_files, &func_def_array)) {
+        al_dprintERROR("%s", "Could not get function definitions from lexes files.");
         return -1;
     }
-
-    function_definition_print(current_tokens, func_def);
+    func_def_array_print(func_def_array);
 
 
     for (size_t i = 0; i <lexed_files.length; i++) {
         al_tokens_free(lexed_files.elements[i]);
     }
     AL_FREE(lexed_files.elements);
+    AL_FREE(func_def_array.elements);
     return 0;
 }

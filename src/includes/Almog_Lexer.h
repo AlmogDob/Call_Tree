@@ -406,16 +406,16 @@ static const char * const keywords[] = {
  * @name Debug-print helpers
  * @brief Convenience macros for diagnostic output.
  *
- * The typed variants print to stdout. The INFO/WARNING/ERROR variants print to
- * stderr and include file, line, and function information.
+ * The typed variants print to stdout. The INFO variants print to
+ * stdout and include file, line, and function information.
  */
 #define al_dprintINFO(fmt, ...) \
-    fprintf(stderr, "[Info] %s:%d:\n%*sIn function '%s':\n%*s" fmt "\n", __FILE__, __LINE__, 7, "", __func__, 7, "", __VA_ARGS__)
+    fprintf(stdout, "[Info] %s:%d:\n%*sIn function '%s':\n%*s" fmt "\n", __FILE__, __LINE__, 7, "", __func__, 7, "", __VA_ARGS__)
 /**
  * @name Debug-print helpers
  * @brief Convenience macros for diagnostic output.
  *
- * The typed variants print to stdout. The INFO/WARNING/ERROR variants print to
+ * The typed variants print to stdout. The WARNING/ERROR variants print to
  * stderr and include file, line, and function information.
  */
 #define al_dprintWARNING(fmt, ...) \
@@ -424,7 +424,7 @@ static const char * const keywords[] = {
  * @name Debug-print helpers
  * @brief Convenience macros for diagnostic output.
  *
- * The typed variants print to stdout. The INFO/WARNING/ERROR variants print to
+ * The typed variants print to stdout. The WARNING/ERROR variants print to
  * stderr and include file, line, and function information.
  */
 #define al_dprintERROR(fmt, ...) \
