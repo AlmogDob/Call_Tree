@@ -1,36 +1,15 @@
 #include <stdio.h>
 
-#ifdef _WIN32
-#include <direct.h>
-#define getcwd _getcwd
-#define DIR_SEPARATOR '\\'
-#include <sys/stat.h>
-#define stat _stat
-#define IS_DIR(mode) (((mode) & _S_IFDIR) != 0)
-#define IS_REG(mode) (((mode) & _S_IFREG) != 0)
-#else
-#include <unistd.h>
-#define DIR_SEPARATOR '/'
-#include <sys/stat.h>
-#define IS_DIR(mode) S_ISDIR(mode)
-#define IS_REG(mode) S_ISREG(mode)
-#endif
-
 #define ALMOG_LEXER_IMPLEMENTATION
 #define ALMOG_STRING_MANIPULATION_IMPLEMENTATION
 #include "./includes/Almog_Lexer.h"
 
-#define SUCCESS 1
-#define OK SUCCESS
-#define FAIL 0
+#define APM_MAX_LEN ASM_MAX_LEN
+#define ALMOG_PATH_MANIPULATION_IMPLEMENTATION
+#include "./includes/Almog_Path_Manipulation.h"
 
-typedef char Word[ASM_MAX_LEN];
-
-#define WORD_ARRAY_MAX_LEN 100
-struct Word_Array {
-    size_t length;
-    Word *elements;
-};
+#define SUCCESS APM_SUCCESS
+#define FAIL APM_FAIL
 
 struct Lexed_Files {
     size_t length;
@@ -56,11 +35,11 @@ struct Func_Def_Array {
     struct Function_Definition *elements;
 };
 
-struct Word_Array word_array_alloc() 
+struct Apm_Word_Array word_array_alloc() 
 {
-    struct Word_Array word_array = {
+    struct Apm_Word_Array word_array = {
         .length = 0,
-        .elements = (Word *)AL_MALLOC(WORD_ARRAY_MAX_LEN * sizeof(Word))
+        .elements = (Apm_Word *)AL_MALLOC(APM_WORD_ARRAY_MAX_LEN * sizeof(Apm_Word))
     };
     if (word_array.elements == NULL) {
         al_dprintERROR("%s", "Failed to allocate a word array.");
@@ -71,7 +50,7 @@ struct Word_Array word_array_alloc()
 }
 
 #define word_array_print(word_array) do {al_dprintINFO("%s = ", #word_array); word_array_print_imp(word_array, 7);} while (0)
-void word_array_print_imp(struct Word_Array wa, size_t padding)
+void word_array_print_imp(struct Apm_Word_Array wa, size_t padding)
 {
     for (size_t i = 0; i < wa.length; i++) {
         printf("%*.s%s\n", (int)padding, "", wa.elements[i]);
@@ -110,306 +89,10 @@ void func_def_array_print_imp (struct Func_Def_Array func_def_array, size_t padd
     }
 }
 
-bool path_exists(const char *path)
+bool include_paths_get_from_tokens(struct Apm_Word_Array *word_array, struct Tokens tokens)
 {
-    struct stat st;
-    if (stat(path, &st) == 0) {
-        return SUCCESS;
-    } else {
-        return FAIL;
-    }
-}
-
-bool path_is_directory(const char *path)
-{
-    struct stat st;
-    if (stat(path, &st) != 0) {
-        return false;
-    }
-    if (IS_DIR(st.st_mode)) {
-        return SUCCESS;
-    } else {
-        return FAIL;
-    }
-}
-
-bool path_is_regular_file(const char *path)
-{
-    struct stat st;
-    if (stat(path, &st) != 0) {
-        return FAIL;
-    }
-    if (IS_REG(st.st_mode)) {
-        return SUCCESS;
-    } else {
-        return FAIL;
-    }
-}
-
-bool path_is_absolute(const char *path)
-{
-    if (path == NULL || path[0] == '\0') {
-        return FAIL;
-    }
-
-    if (asm_length(path) <= 2) {
-        return FAIL;
-    }
-
-    #ifdef _WIN32
-        /** Examples of absolute paths on Windows:
-         * C:\file.txt
-         * C:/file.txt
-         * \\server\share
-         * /some/path   (root-relative, often treated as absolute)
-         */
-
-        /* UNC path: \\server\share */
-        if ((path[0] == '\\' && path[1] == '\\') ||
-            (path[0] == '/' && path[1] == '/')) {
-            return SUCCESS;
-        }
-
-        /* Drive letter path: C:\ or C:/ */
-        if (asm_isalpha((unsigned char)path[0]) &&
-            path[1] == ':' &&
-            (path[2] == '\\' || path[2] == '/')) {
-            return SUCCESS;
-        }
-
-        /* Root-relative path */
-        if (path[0] == '\\' || path[0] == '/') {
-            return SUCCESS;
-        }
-
-        return FAIL;
-    #else
-        /* On Unix/Linux, absolute paths start with / */
-        if (path[0] == '/') {
-            return SUCCESS;
-        } else {
-            return FAIL;
-        }
-    #endif
-}
-
-bool path_fix(char *path)
-{
-    /* Written by AI */
-    if (path == NULL || path[0] == '\0') {
-        return FAIL;
-    }
-
-    size_t len = asm_length(path);
-    for (size_t i = 0; i < len; i++) {
-        if (path[i] == '\\' || path[i] == '/') {
-            path[i] = DIR_SEPARATOR;
-        }
-    }
-
-    Word original;
-    Word result;
-    Word segment;
-    Word parts[WORD_ARRAY_MAX_LEN];
-
-    asm_strncpy(original, path, ASM_MAX_LEN);
-    result[0] = '\0';
-
-    size_t part_count = 0;
-    size_t i = 0;
-
-    bool is_absolute = false;
-
-    #ifdef _WIN32
-        bool has_drive = false;
-        char drive[4] = {0};
-
-        if (len >= 3 &&
-            asm_isalpha((unsigned char)original[0]) &&
-            original[1] == ':' &&
-            original[2] == DIR_SEPARATOR) {
-            has_drive = true;
-            is_absolute = true;
-            drive[0] = original[0];
-            drive[1] = ':';
-            drive[2] = DIR_SEPARATOR;
-            drive[3] = '\0';
-            i = 3;
-        } else if (len >= 2 &&
-                original[0] == DIR_SEPARATOR &&
-                original[1] == DIR_SEPARATOR) {
-            /* UNC path - this implementation preserves leading // but does not
-            fully validate/share-split UNC semantics */
-            is_absolute = true;
-            i = 2;
-        } else if (original[0] == DIR_SEPARATOR) {
-            is_absolute = true;
-            i = 1;
-        }
-    #else
-        if (original[0] == DIR_SEPARATOR) {
-            is_absolute = true;
-            i = 1;
-        }
-    #endif
-
-    while (i <= len) {
-        size_t j = 0;
-
-        while (i < len && original[i] == DIR_SEPARATOR) {
-            i++;
-        }
-
-        while (i < len && original[i] != DIR_SEPARATOR) {
-            if (j + 1 >= ASM_MAX_LEN) {
-                al_dprintERROR("%s", "Path segment too long.");
-                return FAIL;
-            }
-            segment[j++] = original[i++];
-        }
-        segment[j] = '\0';
-
-        if (j == 0) {
-            break;
-        }
-
-        if (asm_strncmp(segment, ".", ASM_MAX_LEN)) {
-            continue;
-        }
-
-        if (asm_strncmp(segment, "..", ASM_MAX_LEN)) {
-            if (part_count > 0 &&
-                !asm_strncmp(parts[part_count - 1], "..", ASM_MAX_LEN)) {
-                part_count--;
-            } else if (!is_absolute) {
-                if (part_count >= WORD_ARRAY_MAX_LEN) {
-                    al_dprintERROR("%s", "Too many path segments.");
-                    return FAIL;
-                }
-                asm_strncpy(parts[part_count++], segment, ASM_MAX_LEN);
-            }
-            continue;
-        }
-
-        if (part_count >= WORD_ARRAY_MAX_LEN) {
-            al_dprintERROR("%s", "Too many path segments.");
-            return FAIL;
-        }
-        asm_strncpy(parts[part_count++], segment, ASM_MAX_LEN);
-    }
-
-    #ifdef _WIN32
-        if (has_drive) {
-            asm_strncpy(result, drive, ASM_MAX_LEN);
-        } else if (is_absolute) {
-            result[0] = DIR_SEPARATOR;
-            result[1] = '\0';
-        }
-    #else
-        if (is_absolute) {
-            result[0] = DIR_SEPARATOR;
-            result[1] = '\0';
-        }
-    #endif
-
-    for (size_t k = 0; k < part_count; k++) {
-        if (asm_length(result) > 0 &&
-            result[asm_length(result) - 1] != DIR_SEPARATOR) {
-            char sep[2] = {DIR_SEPARATOR, '\0'};
-            asm_strncat(result, sep, 1);
-        }
-        asm_strncat(result, parts[k], ASM_MAX_LEN);
-    }
-
-    if (result[0] == '\0') {
-        if (is_absolute) {
-            result[0] = DIR_SEPARATOR;
-            result[1] = '\0';
-        } else {
-            result[0] = '.';
-            result[1] = '\0';
-        }
-    }
-
-    asm_strncpy(path, result, ASM_MAX_LEN);
-    return SUCCESS;
-}
-
-bool path_is_valid_file(const char *path)
-{
-    if (!path_exists(path)) {
-        al_dprintERROR("Path does not exist: '%s'", path);
-        return FAIL;
-    }
-    if (path_is_directory(path)) {
-        al_dprintERROR("Expected a file, but got a directory: '%s'", path);
-        return FAIL;
-    }
-    if (!path_is_regular_file(path)) {
-        al_dprintERROR("Expected a regular file: '%s'", path);
-        return FAIL;
-    }
-
-    return SUCCESS;
-}
-
-bool join_two_paths(char *des, char *p1, char *p2) 
-{
-    size_t p1_len = asm_length(p1);
-    size_t p2_len = asm_length(p2);
-    if (p1_len == 0) {
-        asm_strncpy(des, p2, ASM_MAX_LEN);
-    } else if (p2_len == 0) {
-        asm_strncpy(des, p1, ASM_MAX_LEN);
-    } else if (SUCCESS == path_is_absolute(p2)) {
-        al_dprintWARNING("p2 is absolute. p2 = '%s'. Copied p2 to des.", p2);
-        asm_strncpy(des, p2, ASM_MAX_LEN);
-    } else if (p1[p1_len-1] == DIR_SEPARATOR) {
-        snprintf(des, ASM_MAX_LEN, "%s%s", p1, p2);
-    } else {
-        snprintf(des, ASM_MAX_LEN, "%s%c%s", p1, DIR_SEPARATOR, p2);
-    }
-
-    if (FAIL == path_fix(des)) {
-        al_dprintERROR("Could not fix path '%s'.", des);
-        return FAIL;
-    }
-
-    return SUCCESS;
-}
-
-bool directory_get_from_path(char *dir_des, char *path) 
-{
-    size_t path_len = asm_length(path);
-    if (path_len == 0) {
-        dir_des[0] = '\0';
-        return SUCCESS;
-    }
-
-    size_t last_separator_index = path_len;
-
-    for (size_t i = path_len; i > 0; i--) {
-        if (path[i - 1] == DIR_SEPARATOR) {
-            last_separator_index = i - 1;
-            break;
-        }
-    }
-    if (last_separator_index == path_len) {
-        al_dprintERROR("Failed to find dir separator in the path '%s'", path);
-        return FAIL;
-    }
-    for (size_t i = 0; i <= last_separator_index; i++) {
-        dir_des[i] = path[i];
-    }
-    dir_des[last_separator_index+1] = '\0';
-
-    return SUCCESS;
-}
-
-bool include_paths_get_from_tokens(struct Word_Array *word_array, struct Tokens tokens)
-{
-    Word temp_word;
-    Word current_directive;
+    Apm_Word temp_word;
+    Apm_Word current_directive;
     for (size_t i = 0; i < tokens.length; i++) {
         struct Token token = tokens.elements[i];
         if (token.kind == TOKEN_PP_DIRECTIVE) {
@@ -420,14 +103,14 @@ bool include_paths_get_from_tokens(struct Word_Array *word_array, struct Tokens 
                 if (current_directive[0] == '"') {
                     asm_get_token_and_cut(temp_word, current_directive, '"', false);
                     asm_get_token_and_cut(temp_word, current_directive, '"', false);
-                    if (FAIL == path_fix(temp_word)) {
+                    if (APM_FAIL == apm_path_fix(temp_word)) {
                         al_dprintERROR("Could not fix path '%s'.", temp_word);
                         return FAIL;
                     }
-                    if (word_array->length < WORD_ARRAY_MAX_LEN) {
+                    if (word_array->length < APM_WORD_ARRAY_MAX_LEN) {
                         asm_strncpy(word_array->elements[word_array->length++], temp_word, ASM_MAX_LEN);
                     } else {
-                        al_dprintERROR("Could not add word to word array. Capacity is %d and the current length is %zu", WORD_ARRAY_MAX_LEN, word_array->length);
+                        al_dprintERROR("Could not add word to word array. Capacity is %d and the current length is %zu", APM_WORD_ARRAY_MAX_LEN, word_array->length);
                         return FAIL;
                     }
                 }
@@ -437,14 +120,14 @@ bool include_paths_get_from_tokens(struct Word_Array *word_array, struct Tokens 
     return SUCCESS;
 }
 
-bool paths_add_prefix(struct Word_Array path_array, char * prefix)
+bool paths_add_prefix(struct Apm_Word_Array path_array, char * prefix)
 {
     for (size_t i = 0; i < path_array.length; i++) {
-        Word current_word;
-        Word joined;
+        Apm_Word current_word;
+        Apm_Word joined;
 
         asm_strncpy(current_word, path_array.elements[i], ASM_MAX_LEN);
-        if (FAIL == join_two_paths(joined, prefix, current_word)) {
+        if (APM_FAIL == apm_join_two_paths(joined, prefix, current_word)) {
             al_dprintERROR("Could not join path2 '%s' to path1 '%s'.", current_word, prefix);
             return FAIL;
         }
@@ -454,14 +137,14 @@ bool paths_add_prefix(struct Word_Array path_array, char * prefix)
     return SUCCESS;
 }
 
-bool includes_path_get_from_lexed_file(struct Word_Array *include_paths, struct Tokens lexed_file)
+bool includes_path_get_from_lexed_file(struct Apm_Word_Array *include_paths, struct Tokens lexed_file)
 {
     if (FAIL == include_paths_get_from_tokens(include_paths, lexed_file)) {
         al_dprintERROR("Failed to get the include paths from the tokens of '%s'.", lexed_file.file_path);
         return FAIL;
     }
-    Word entry_file_absolute_dir;
-    if (FAIL == directory_get_from_path(entry_file_absolute_dir, lexed_file.file_path))
+    Apm_Word entry_file_absolute_dir;
+    if (APM_FAIL == apm_directory_get_from_path(entry_file_absolute_dir, lexed_file.file_path))
     {
         al_dprintERROR("Failed to get the absolute path of '%s'", lexed_file.file_path);
         return FAIL;
@@ -487,21 +170,21 @@ bool path_is_in_lexed_files(struct Lexed_Files lexed_files, char *path)
 
 bool lex_entire_file_recursively(struct Lexed_Files *lexed_files, char *path)
 {
-    if (FAIL == path_exists(path)) {
+    if (APM_FAIL == apm_path_exists(path)) {
         al_dprintERROR("Path does not exist: '%s'", path);
         return FAIL;
     }
-    if (FAIL == path_is_absolute(path)) {
+    if (APM_FAIL == apm_path_is_absolute(path)) {
         al_dprintERROR("Inputted path is not absolute '%s'.", path);
         return FAIL;
     }
-    if (SUCCESS == path_is_directory(path)) {
+    if (APM_SUCCESS == apm_path_is_directory(path)) {
         al_dprintERROR("Expected a file, but got a directory: '%s'.", path);
         return FAIL;
     }
     struct Tokens tokens = al_lex_entire_file(path);
     ada_appand(struct Tokens, *lexed_files, tokens);
-    struct Word_Array nested_include_paths = {0};
+    struct Apm_Word_Array nested_include_paths = {0};
     nested_include_paths = word_array_alloc();
     if (FAIL == includes_path_get_from_lexed_file(&nested_include_paths, tokens)) {
         al_dprintERROR("Could not get includes path from file '%s'.", tokens.file_path);
@@ -696,31 +379,31 @@ int main(int argc, char const *argv[])
     const char *entry_file_relative_path = argv[1];
     const char *entry_function_name = argv[2];
     al_dprintINFO("entry file relative path = %s | entry function name = %s.", entry_file_relative_path, entry_function_name);
-    if (FAIL == path_is_valid_file(entry_file_relative_path)) {
+    if (APM_FAIL == apm_path_is_valid_file(entry_file_relative_path)) {
         al_dprintERROR("%s", "Entry file is not a valid file.");
         return -1;
     }
 
-    Word current_working_directory;
+    Apm_Word current_working_directory;
     if (getcwd(current_working_directory, sizeof(current_working_directory)) == NULL) {
         al_dprintERROR("%s", "Could not get current working directory.");
         return -1;
     }
 
-    Word entry_file_absolute_path;
-    if (SUCCESS == path_is_absolute(entry_file_relative_path)) {
+    Apm_Word entry_file_absolute_path;
+    if (APM_SUCCESS == apm_path_is_absolute(entry_file_relative_path)) {
         asm_strncpy(entry_file_absolute_path, entry_file_relative_path, ASM_MAX_LEN);
     } else {
-        if (FAIL == join_two_paths(entry_file_absolute_path, current_working_directory, (char *)entry_file_relative_path)) {
+        if (APM_FAIL == apm_join_two_paths(entry_file_absolute_path, current_working_directory, (char *)entry_file_relative_path)) {
             al_dprintERROR("Could not join path2 '%s' to path1 '%s'.", (char *)entry_file_relative_path, current_working_directory);
             return -1;
         }
-        if (FAIL == path_is_absolute(entry_file_absolute_path)) {
+        if (APM_FAIL == apm_path_is_absolute(entry_file_absolute_path)) {
             al_dprintERROR("Could not create an absolute path to the entry file. Created: '%s'", entry_file_absolute_path);
             return -1;
         }
     }
-    if (FAIL == path_fix(entry_file_absolute_path)) {
+    if (APM_FAIL == apm_path_fix(entry_file_absolute_path)) {
         al_dprintERROR("Could not fix path '%s'", entry_file_absolute_path);
         return -1;
     }
@@ -748,6 +431,7 @@ int main(int argc, char const *argv[])
         al_dprintERROR("%s", "Could not get function definitions from lexes files.");
         return -1;
     }
+
     func_def_array_print(func_def_array);
 
 
