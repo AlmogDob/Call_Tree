@@ -61,7 +61,7 @@ void word_array_print_imp(struct Apm_Word_Array wa, size_t padding)
 void function_definition_print_imp(struct Tokens tokens, struct Function_Definition func_def, size_t padding)
 {
     printf("%*.sname              -> %s\n", (int)padding, "", func_def.name);
-    printf("%*.sfile name         -> %s\n", (int)padding, "", func_def.file_name);
+    printf("%*.sfile name         -> %s:%zu\n", (int)padding, "", func_def.file_name, tokens.elements[func_def.LPAREN_index].location.line_num);
     printf("%*.sfile index        -> %d\n", (int)padding, "", func_def.file_index);
     printf("%*.stoken start index -> %-4zu = ", (int)padding, "", func_def.token_start_index);
     al_token_print(tokens.elements[func_def.token_start_index]);
@@ -77,14 +77,14 @@ void function_definition_print_imp(struct Tokens tokens, struct Function_Definit
     al_token_print(tokens.elements[func_def.RBRACE_index]);
 }
 
-#define func_def_array_print(func_def_array) do {al_dprintINFO("%s = ", #func_def_array); func_def_array_print_imp(func_def_array, 11);} while (0)
-void func_def_array_print_imp (struct Func_Def_Array func_def_array, size_t padding)
+#define func_def_array_print(lexed_files, func_def_array) do {al_dprintINFO("%s = ", #func_def_array); func_def_array_print_imp(lexed_files, func_def_array, 11);} while (0)
+void func_def_array_print_imp (struct Lexed_Files lexed_files, struct Func_Def_Array func_def_array, size_t padding)
 {
     for (size_t i = 0; i < func_def_array.length; i++) {
         struct Function_Definition func_def = func_def_array.elements[i];
         printf("%*.sFunc No.%zu:\n", (int)padding, "", i);
         printf("%*.s    name       -> %s\n", (int)padding, "", func_def.name);
-        printf("%*.s    file name  -> %s\n", (int)padding, "", func_def.file_name);
+        printf("%*.s    file name  -> %s:%zu\n", (int)padding, "", func_def.file_name, lexed_files.elements[func_def.file_index].elements[func_def.LPAREN_index].location.line_num);
         printf("%*.s    file index -> %d\n", (int)padding, "", func_def.file_index);
     }
 }
@@ -432,7 +432,7 @@ int main(int argc, char const *argv[])
         return -1;
     }
 
-    func_def_array_print(func_def_array);
+    func_def_array_print(lexed_files, func_def_array);
 
 
     for (size_t i = 0; i <lexed_files.length; i++) {
