@@ -131,6 +131,7 @@ APM_DEF bool    apm_islower(char c);
 APM_DEF bool    apm_isupper(char c);
 APM_DEF bool    apm_join_two_paths(char *des, char *p1, char *p2);
 APM_DEF size_t  apm_length(const char * const str);
+APM_DEF bool    apm_paths_add_prefix(struct Apm_Word_Array path_array, char * prefix);
 APM_DEF bool    apm_path_exists(const char *path);
 APM_DEF bool    apm_path_fix(char *path);
 APM_DEF bool    apm_path_is_absolute(const char *path);
@@ -236,6 +237,23 @@ APM_DEF size_t apm_length(const char * const str)
         }
     }
     return --i;
+}
+
+APM_DEF bool apm_paths_add_prefix(struct Apm_Word_Array path_array, char * prefix)
+{
+    for (size_t i = 0; i < path_array.length; i++) {
+        Apm_Word current_word;
+        Apm_Word joined;
+
+        apm_strncpy(current_word, path_array.elements[i], APM_MAX_LEN);
+        if (APM_FAIL == apm_join_two_paths(joined, prefix, current_word)) {
+            apm_dprintERROR("Could not join path2 '%s' to path1 '%s'.", current_word, prefix);
+            return APM_FAIL;
+        }
+        apm_strncpy(path_array.elements[i], joined, APM_MAX_LEN);
+    }
+
+    return APM_SUCCESS;
 }
 
 APM_DEF bool apm_path_exists(const char *path)

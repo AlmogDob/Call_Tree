@@ -23,6 +23,8 @@ struct Function_Definition {
     int file_index;
     size_t token_start_index;
     size_t token_end_index;
+    size_t start_line;
+    size_t end_line;
     size_t LPAREN_index;
     size_t RPAREN_index;
     size_t LBRACE_index;
@@ -33,6 +35,26 @@ struct Func_Def_Array {
     size_t length;
     size_t capacity;
     struct Function_Definition *elements;
+};
+
+struct Function_Call {
+    char name[ASM_MAX_LEN];
+    char file_name[ASM_MAX_LEN];
+    int file_index;
+    int called_at_func_def_index;
+    size_t token_start_index;
+    size_t token_end_index;
+    size_t start_line;
+    size_t end_line;
+    size_t LPAREN_index;
+    size_t RPAREN_index;
+    bool external;
+};
+
+struct Func_Call_Array {
+    size_t length;
+    size_t capacity;
+    struct Function_Call *elements;
 };
 
 struct Apm_Word_Array word_array_alloc() 
@@ -61,8 +83,8 @@ void word_array_print_imp(struct Apm_Word_Array wa, size_t padding)
 void function_definition_print_imp(struct Tokens tokens, struct Function_Definition func_def, size_t padding)
 {
     printf("%*.sname              -> %s\n", (int)padding, "", func_def.name);
-    printf("%*.sfile name         -> %s:%zu\n", (int)padding, "", func_def.file_name, tokens.elements[func_def.LPAREN_index].location.line_num);
-    printf("%*.sfile index        -> %d\n", (int)padding, "", func_def.file_index);
+    printf("%*.sfile name         -> %s:%zu->%zu\n", (int)padding, "", func_def.file_name, func_def.start_line, func_def.end_line);
+    printf("%*.sfile index        -> %-4d\n", (int)padding, "", func_def.file_index);
     printf("%*.stoken start index -> %-4zu = ", (int)padding, "", func_def.token_start_index);
     al_token_print(tokens.elements[func_def.token_start_index]);
     printf("%*.stoken end index   -> %-4zu = ", (int)padding, "", func_def.token_end_index);
@@ -77,16 +99,78 @@ void function_definition_print_imp(struct Tokens tokens, struct Function_Definit
     al_token_print(tokens.elements[func_def.RBRACE_index]);
 }
 
-#define func_def_array_print(lexed_files, func_def_array) do {al_dprintINFO("%s = ", #func_def_array); func_def_array_print_imp(lexed_files, func_def_array, 11);} while (0)
-void func_def_array_print_imp (struct Lexed_Files lexed_files, struct Func_Def_Array func_def_array, size_t padding)
+#define func_def_array_print(func_def_array) do {al_dprintINFO("%s = ", #func_def_array); func_def_array_print_imp(func_def_array, 11);} while (0)
+void func_def_array_print_imp (struct Func_Def_Array func_def_array, size_t padding)
 {
     for (size_t i = 0; i < func_def_array.length; i++) {
         struct Function_Definition func_def = func_def_array.elements[i];
         printf("%*.sFunc No.%zu:\n", (int)padding, "", i);
         printf("%*.s    name       -> %s\n", (int)padding, "", func_def.name);
-        printf("%*.s    file name  -> %s:%zu\n", (int)padding, "", func_def.file_name, lexed_files.elements[func_def.file_index].elements[func_def.LPAREN_index].location.line_num);
-        printf("%*.s    file index -> %d\n", (int)padding, "", func_def.file_index);
+        printf("%*.s    file name  -> %s:%zu->%zu\n", (int)padding, "", func_def.file_name, func_def.start_line, func_def.end_line);
+        printf("%*.s    file index -> %-4d\n", (int)padding, "", func_def.file_index);
     }
+}
+
+#define function_call_print(tokens, func_call) do {al_dprintINFO("%s = ", #func_call); function_call_print_imp(tokens, func_call, 11);} while (0)
+void function_call_print_imp(struct Tokens tokens, struct Function_Call func_call, size_t padding)
+{
+    printf("%*.sname                     -> %s\n", (int)padding, "", func_call.name);
+    printf("%*.sfile name                -> %s:%zu->%zu\n", (int)padding, "", func_call.file_name, func_call.start_line, func_call.end_line);
+    printf("%*.sfile index               -> %-4d\n", (int)padding, "", func_call.file_index);
+    printf("%*.scalled at func def index -> %-4d\n", (int)padding, "", func_call.called_at_func_def_index);
+    if (func_call.external) {
+    printf("%*.sexternal                 -> true\n", (int)padding, "");
+    }  else {
+    printf("%*.sexternal                 -> false\n", (int)padding, "");
+    }
+    printf("%*.stoken start index        -> %-4zu = ", (int)padding, "", func_call.token_start_index);
+    al_token_print(tokens.elements[func_call.token_start_index]);
+    printf("%*.stoken end index          -> %-4zu = ", (int)padding, "", func_call.token_end_index);
+    al_token_print(tokens.elements[func_call.token_end_index]);
+    printf("%*.sLPAREN index             -> %-4zu = ", (int)padding, "", func_call.LPAREN_index);
+    al_token_print(tokens.elements[func_call.LPAREN_index]);
+    printf("%*.sRPAREN index             -> %-4zu = ", (int)padding, "", func_call.RPAREN_index);
+    al_token_print(tokens.elements[func_call.RPAREN_index]);
+}
+
+#define func_call_array_print(func_call_array) do {al_dprintINFO("%s = ", #func_call_array); func_call_array_print_imp(func_call_array, 11);} while (0)
+void func_call_array_print_imp (struct Func_Call_Array func_call_array, size_t padding)
+{
+    for (size_t i = 0; i < func_call_array.length; i++) {
+        struct Function_Call func_call = func_call_array.elements[i];
+        printf("%*.sFunc No.%zu:\n", (int)padding, "", i);
+        printf("%*.s    name                     -> %s\n", (int)padding, "", func_call.name);
+        printf("%*.s    file name                -> %s:%zu->%zu\n", (int)padding, "", func_call.file_name, func_call.start_line, func_call.end_line);
+        printf("%*.s    file index               -> %-4d\n", (int)padding, "", func_call.file_index);
+        printf("%*.s    called at func def index -> %-4d\n", (int)padding, "", func_call.called_at_func_def_index);
+        if (func_call.external) {
+        printf("%*.s    external                 -> true\n", (int)padding, "");
+        }  else {
+        printf("%*.s    external                 -> false\n", (int)padding, "");
+        }
+    }
+}
+
+void pp_directive_splice_lines(char *s)
+{
+    size_t r = 0;
+    size_t w = 0;
+
+    while (s[r] != '\0') {
+        if (s[r] == '\\' && s[r + 1] == '\n') {
+            r += 2;
+            continue;
+        }
+
+        if (s[r] == '\\' && s[r + 1] == '\r' && s[r + 2] == '\n') {
+            r += 3;
+            continue;
+        }
+
+        s[w++] = s[r++];
+    }
+
+    s[w] = '\0';
 }
 
 bool include_paths_get_from_tokens(struct Apm_Word_Array *word_array, struct Tokens tokens)
@@ -97,6 +181,7 @@ bool include_paths_get_from_tokens(struct Apm_Word_Array *word_array, struct Tok
         struct Token token = tokens.elements[i];
         if (token.kind == TOKEN_PP_DIRECTIVE) {
             asm_strncpy(current_directive, token.text, token.text_len);
+            pp_directive_splice_lines(current_directive);
             asm_get_token_and_cut(temp_word, current_directive, '"', true);
             asm_strip_whitespace(temp_word);
             if (asm_strncmp(temp_word, "#include", ASM_MAX_LEN)) {
@@ -120,23 +205,6 @@ bool include_paths_get_from_tokens(struct Apm_Word_Array *word_array, struct Tok
     return SUCCESS;
 }
 
-bool paths_add_prefix(struct Apm_Word_Array path_array, char * prefix)
-{
-    for (size_t i = 0; i < path_array.length; i++) {
-        Apm_Word current_word;
-        Apm_Word joined;
-
-        asm_strncpy(current_word, path_array.elements[i], ASM_MAX_LEN);
-        if (APM_FAIL == apm_join_two_paths(joined, prefix, current_word)) {
-            al_dprintERROR("Could not join path2 '%s' to path1 '%s'.", current_word, prefix);
-            return FAIL;
-        }
-        asm_strncpy(path_array.elements[i], joined, ASM_MAX_LEN);
-    }
-
-    return SUCCESS;
-}
-
 bool includes_path_get_from_lexed_file(struct Apm_Word_Array *include_paths, struct Tokens lexed_file)
 {
     if (FAIL == include_paths_get_from_tokens(include_paths, lexed_file)) {
@@ -149,7 +217,7 @@ bool includes_path_get_from_lexed_file(struct Apm_Word_Array *include_paths, str
         al_dprintERROR("Failed to get the absolute path of '%s'", lexed_file.file_path);
         return FAIL;
     }
-    if (FAIL == paths_add_prefix(*include_paths, entry_file_absolute_dir)) {
+    if (APM_FAIL == apm_paths_add_prefix(*include_paths, entry_file_absolute_dir)) {
         al_dprintERROR("Could not add prefix '%s' to paths.", entry_file_absolute_dir);
         return FAIL;
     }
@@ -311,6 +379,8 @@ bool token_sequence_at_start_index_is_function_definition(struct Tokens tokens, 
     }
     if (FAIL == LBRACE_find_matching_RBRACE(tokens, LBRACE_index, &matching_RBRACE_index, to_log)) {
         if (to_log) al_dprintERROR("Could not find matching RBRACE for the token at index %zu of file '%s'."
+    // if (FAIL == LBRACE_find_matching_RBRACE(tokens, LBRACE_index, &matching_RBRACE_index, true)) {
+    //     al_dprintERROR("Could not find matching RBRACE for the token at index %zu of file '%s'."
             "The token at index %zu: %4zu:%-3zu:(%-19s) -> \"%.*s\".", LBRACE_index, tokens.file_path, LBRACE_index,
             tokens.elements[LBRACE_index].location.line_num, tokens.elements[LBRACE_index].location.col,
             al_token_kind_name(tokens.elements[LBRACE_index].kind), (int)tokens.elements[LBRACE_index].text_len,
@@ -324,6 +394,8 @@ bool token_sequence_at_start_index_is_function_definition(struct Tokens tokens, 
         func_def->file_index = -1;
         func_def->token_start_index = start_index;
         func_def->token_end_index = matching_RBRACE_index;
+        func_def->start_line = tokens.elements[func_def->token_start_index].location.line_num;
+        func_def->end_line = tokens.elements[func_def->token_end_index].location.line_num;
         func_def->LPAREN_index = LPAREN_index;
         func_def->RPAREN_index = matching_RPAREN_index;
         func_def->LBRACE_index = LBRACE_index;
@@ -346,7 +418,7 @@ bool func_def_array_get_from_lexed_files_index(struct Lexed_Files lexed_files, s
             current_func.file_index = (int)file_index;
             if (func_def_array) {
                 ada_appand(struct Function_Definition, *func_def_array, current_func);
-                i = current_func.RBRACE_index + 1;
+                i = current_func.RBRACE_index;
             }
         }
     }
@@ -365,6 +437,105 @@ bool lexed_files_get_function_definitions(struct Lexed_Files lexed_files, struct
 
     return SUCCESS;
 }
+
+bool token_sequence_at_start_index_is_function_call(struct Tokens tokens, size_t start_index, struct Function_Call *func_call, bool to_log) {
+    if (start_index + 1 >= tokens.length) {
+        if (to_log) al_dprintERROR("Start index + 1 (%zu) is bigger than tokens.length %zu.", start_index + 1, tokens.length);
+        return FAIL;
+    }
+
+    struct Token start_token = tokens.elements[start_index];
+    if (start_token.kind != TOKEN_IDENTIFIER) {
+        if (to_log) al_dprintERROR("Token at start index (%zu) of file '%s' is not an IDENTIFIER."
+            " The token at index %zu: %4zu:%-3zu:(%-19s) -> \"%.*s\".", start_index, tokens.file_path, start_index, start_token.location.line_num,
+            start_token.location.col, al_token_kind_name(start_token.kind), (int)start_token.text_len, start_token.text);
+        return FAIL;
+    }
+    size_t LPAREN_index_candidate = start_index + 1;
+    while (tokens.elements[LPAREN_index_candidate].kind == TOKEN_COMMENT) {
+        LPAREN_index_candidate++;
+        if (LPAREN_index_candidate >= tokens.length) {
+            if (to_log) al_dprintERROR("%s", "Could not find LPAREN token.");
+            return FAIL;
+        }
+    }
+    struct Token LPAREN_token_candidate = tokens.elements[LPAREN_index_candidate];
+    if (LPAREN_token_candidate.kind != TOKEN_LPAREN) {
+        if (to_log) al_dprintERROR("Token at LPAREN index candidate (%zu) of file '%s' is not an LPAREN."
+            "The token at index %zu: %4zu:%-3zu:(%-19s) -> \"%.*s\".", LPAREN_index_candidate, tokens.file_path, LPAREN_index_candidate, LPAREN_token_candidate.location.line_num,
+            LPAREN_token_candidate.location.col, al_token_kind_name(LPAREN_token_candidate.kind), (int)LPAREN_token_candidate.text_len, LPAREN_token_candidate.text);
+        return FAIL;
+    }
+    size_t matching_RPAREN_index = 0, LPAREN_index = LPAREN_index_candidate;
+    if (FAIL == LPAREN_find_matching_RPAREN(tokens, LPAREN_index, &matching_RPAREN_index, to_log)) {
+        if (to_log) al_dprintERROR("Could not find matching RPAREN for the token at index %zu of file '%s'."
+            "The token at index %zu: %4zu:%-3zu:(%-19s) -> \"%.*s\".",LPAREN_index, tokens.file_path, LPAREN_index,
+            tokens.elements[LPAREN_index].location.line_num, tokens.elements[LPAREN_index].location.col,
+            al_token_kind_name(tokens.elements[LPAREN_index].kind), (int)tokens.elements[LPAREN_index].text_len,
+            tokens.elements[LPAREN_index].text);
+        return FAIL;
+    }
+
+    if (func_call) {
+        asm_strncpy(func_call->name, start_token.text, start_token.text_len);
+        asm_strncpy(func_call->file_name, tokens.file_path, ASM_MAX_LEN);
+        func_call->file_index = -1;
+        func_call->called_at_func_def_index = -1;
+        func_call->token_start_index = start_index;
+        func_call->token_end_index = matching_RPAREN_index;
+        func_call->start_line = tokens.elements[func_call->token_start_index].location.line_num;
+        func_call->end_line = tokens.elements[func_call->token_end_index].location.line_num;
+        func_call->LPAREN_index = LPAREN_index;
+        func_call->RPAREN_index = matching_RPAREN_index;
+        func_call->external = true;
+    };
+
+    return SUCCESS;
+}
+
+bool func_call_array_get_from_lexed_files_index(struct Lexed_Files lexed_files, size_t file_index, struct Func_Call_Array *func_call_array)
+{
+    if (file_index >= lexed_files.length) {
+        al_dprintERROR("File index %zu is bigger the number of lexed files %zu", file_index, lexed_files.length);
+        return FAIL;
+    }
+    struct Tokens tokens = lexed_files.elements[file_index];
+    for (size_t i = 0; i < tokens.length; i++) {
+        struct Function_Call current_func_call = {0};
+        if (SUCCESS == token_sequence_at_start_index_is_function_call(tokens, i, &current_func_call, false)) {
+            current_func_call.file_index = (int)file_index;
+            if (func_call_array) {
+                ada_appand(struct Function_Call, *func_call_array, current_func_call);
+            }
+        }
+    }
+
+    return SUCCESS;
+}
+
+bool func_call_array_get_from_function_definitions_index(struct Lexed_Files lexed_files, struct Func_Def_Array func_def_array, size_t func_def_index, struct Func_Call_Array *func_call_array)
+{
+    if (func_def_index >= func_def_array.length) {
+        al_dprintERROR("Function definition index %zu is bigger the number of function definitions %zu", func_def_index, func_def_array.length);
+        return FAIL;
+    }
+
+    struct Function_Definition func_def = func_def_array.elements[func_def_index];
+    struct Tokens current_lexed_file = lexed_files.elements[func_def.file_index];
+    for (size_t token_index = func_def.LBRACE_index + 1; token_index < func_def.RBRACE_index; token_index++) {
+        struct Function_Call current_func_call = {0};
+        if (SUCCESS == token_sequence_at_start_index_is_function_call(current_lexed_file, token_index, &current_func_call, false)) {
+            current_func_call.file_index = (int)func_def.file_index;
+            current_func_call.called_at_func_def_index = (int)func_def_index;
+            if (func_call_array) {
+                ada_appand(struct Function_Call, *func_call_array, current_func_call);
+            }
+        }
+    }
+
+    return SUCCESS;
+}
+
 
 int main(int argc, char const *argv[])
 {
@@ -431,8 +602,35 @@ int main(int argc, char const *argv[])
         al_dprintERROR("%s", "Could not get function definitions from lexes files.");
         return -1;
     }
+    // func_def_array_print(func_def_array);
 
-    func_def_array_print(lexed_files, func_def_array);
+    printf("----------------------------------------\n");
+    // size_t file_index = 0;
+    // struct Tokens tokens = lexed_files.elements[file_index];
+    // for (size_t i = 0; i < tokens.length; i++) {
+    //     printf("%zu: ", i);
+    //     al_token_print(tokens.elements[i]);
+    // }
+
+
+    // struct Func_Call_Array func_call_array = {0};
+    // size_t lexed_file_index = 0;
+    // ada_init_array(struct Function_Call, func_call_array);
+    // if (FAIL == func_call_array_get_from_lexed_files_index(lexed_files, lexed_file_index, &func_call_array)) {
+    //     al_dprintERROR("Could not get function call array from lexed file at index %zu '%s'", lexed_file_index, lexed_files.elements[lexed_file_index].file_path);
+    //     return -1;
+    // }
+    // func_call_array_print(lexed_files, func_call_array);
+
+    struct Func_Call_Array func_call_array = {0};
+    size_t func_def_index = 53;
+    ada_init_array(struct Function_Call, func_call_array);
+    if (FAIL == func_call_array_get_from_function_definitions_index(lexed_files, func_def_array, func_def_index, &func_call_array)) {
+        al_dprintERROR("Could not get function call array from function definition at index %zu '%s', at file '%s'", func_def_index, func_def_array.elements[func_def_index].name, lexed_files.elements[func_def_array.elements[func_def_index].file_index].file_path);
+        return -1;
+    }
+    func_call_array_print(func_call_array);
+
 
 
     for (size_t i = 0; i <lexed_files.length; i++) {

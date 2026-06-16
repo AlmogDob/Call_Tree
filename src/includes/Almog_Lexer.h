@@ -433,6 +433,7 @@ static const char * const keywords[] = {
 bool            al_is_identifier(char c);
 bool            al_is_identifier_start(char c);
 struct Tokens   al_lex_entire_file(char *file_path);
+bool            al_lexer_hash_starts_pp_directive(const struct Lexer *l);
 struct Lexer    al_lexer_alloc(const char *content, size_t len);
 char            al_lexer_chop_char(struct Lexer *l);
 void            al_lexer_chop_while(struct Lexer *l, bool (*pred)(char));
@@ -513,6 +514,31 @@ struct Tokens al_lex_entire_file(char *file_path)
     ada_appand(struct Token, tokens, t);
 
     return tokens;
+}
+
+/**
+ * @brief Return true if the current `#` begins a preprocessor directive.
+ *
+ * In C/C++, a preprocessing directive may be preceded on its line only by
+ * whitespace. This helper checks whether the current lexer cursor points at
+ * `#` and whether every character from the start of the current line up to
+ * the cursor is whitespace.
+ */
+bool al_lexer_hash_starts_pp_directive(const struct Lexer *l)
+{
+    if (l->cursor >= l->content_len || l->content[l->cursor] != '#') {
+        return false;
+    }
+
+    for (size_t i = l->begining_of_line; i < l->cursor; i++) {
+        char c = l->content[i];
+        if (c != ' ' && c != '\t' && c != '\v' && c != '\f' &&
+            c != '\r') {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 /**
@@ -632,12 +658,22 @@ struct Token al_lexer_next_token(struct Lexer *l)
 
     if (l->cursor >= l->content_len) {
         token.kind = TOKEN_EOF;
-    } else if (l->content[l->cursor] == '#') {
+    } else if (al_lexer_hash_starts_pp_directive(l)) {
         token.kind = TOKEN_PP_DIRECTIVE;
-        for (;l->cursor < l->content_len && l->content[l->cursor] != '\n';) {
-            al_lexer_chop_char(l);
-        }
-        if (l->cursor < l->content_len) {
+        for (;;) {
+            if (l->cursor >= l->content_len) {
+                break;
+            }
+            if (al_lexer_peek(l, 0) == '\\' &&
+                al_lexer_peek(l, 1) == '\n') {
+                al_lexer_chop_char(l);
+                al_lexer_chop_char(l);
+                continue;
+            }
+            if (al_lexer_peek(l, 0) == '\n') {
+                al_lexer_chop_char(l);
+                break;
+            }
             al_lexer_chop_char(l);
         }
     } else if (al_is_identifier_start(l->content[l->cursor])) {
@@ -655,13 +691,24 @@ struct Token al_lexer_next_token(struct Lexer *l)
                 }
             }
         }
-        } else if (l->content[l->cursor] == '"') {
+    } else if (l->content[l->cursor] == '"') {
         token.kind = TOKEN_STRING_LIT;
         al_lexer_chop_char(l);
         token.text = &l->content[l->cursor];
         start = l->cursor;
 
-        for ( ; (l->cursor < l->content_len) && (l->content[l->cursor] != '"') && (l->content[l->cursor] != '\n'); ) {
+        while (l->cursor < l->content_len && l->content[l->cursor] != '\n') {
+            if (l->content[l->cursor] == '\\') {
+                al_lexer_chop_char(l);
+                if (l->cursor < l->content_len &&
+                    l->content[l->cursor] != '\n') {
+                    al_lexer_chop_char(l);
+                }
+                continue;
+            }
+            if (l->content[l->cursor] == '"') {
+                break;
+            }
             al_lexer_chop_char(l);
         }
         token.text_len = l->cursor - start;
@@ -675,7 +722,19 @@ struct Token al_lexer_next_token(struct Lexer *l)
         token.text = &l->content[l->cursor];
         start = l->cursor;
 
-        for ( ; (l->cursor < l->content_len) && (l->content[l->cursor] != '\'') && (l->content[l->cursor] != '\n'); ) {
+        while (l->cursor < l->content_len &&
+               l->content[l->cursor] != '\n') {
+            if (l->content[l->cursor] == '\\') {
+                al_lexer_chop_char(l);
+                if (l->cursor < l->content_len &&
+                    l->content[l->cursor] != '\n') {
+                    al_lexer_chop_char(l);
+                }
+                continue;
+            }
+            if (l->content[l->cursor] == '\'') {
+                break;
+            }
             al_lexer_chop_char(l);
         }
         token.text_len = l->cursor - start;
