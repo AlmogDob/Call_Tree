@@ -258,7 +258,10 @@ bool asm_check_char_belong_to_base(const char c, const size_t base)
  */
 void asm_copy_array_by_indexes(char * const target, const int start, const int end, const char * const src)
 {
-    if (start > end) return;
+    if (start > end) {
+        target[0] = '\0';
+        return;
+    }
     int j = 0;
     for (int i = start; i <= end; i++) {
         target[j] = src[i];
@@ -323,7 +326,7 @@ int asm_get_line(FILE *fp, char * const dst)
             asm_dprintERROR("%s", "index exceeds ASM_MAX_LEN. Line in file is too long.");
             #endif
             dst[i-1] = '\0';
-            return -1;
+            return -2;
         }
     }
     dst[i] = '\0';
@@ -865,7 +868,11 @@ double asm_str2double(const char * const s, const char ** const end, const size_
     }
 
     if ((s[i+num_of_whitespace] == 'e') || (s[i+num_of_whitespace] == 'E')) {
-        expo = asm_str2int(&(s[i+num_of_whitespace+1]), end, 10);
+        const char *exp_end = NULL;
+        expo = asm_str2int(&(s[i+num_of_whitespace+1]), &exp_end, 10);
+        if (end) {
+            *end = exp_end;
+        }
     } else {
         if (end) *end = s + i + num_of_whitespace;
     }
@@ -952,7 +959,11 @@ float asm_str2float(const char * const s, const char ** const end, const size_t 
     }
 
     if ((s[i+num_of_whitespace] == 'e') || (s[i+num_of_whitespace] == 'E')) {
-        expo = asm_str2int(&(s[i+num_of_whitespace+1]), end, 10);
+        const char *exp_end = NULL;
+        expo = asm_str2int(&(s[i+num_of_whitespace+1]), &exp_end, 10);
+        if (end) {
+            *end = exp_end;
+        }
     } else {
         if (end) *end = s + i + num_of_whitespace;
     }
@@ -1211,15 +1222,15 @@ int asm_strncpy(char * const s1, const char * const s2, const size_t N)
 {
     if (N == 0) return 0;
 
-    size_t n = N > ASM_MAX_LEN - 1 ? ASM_MAX_LEN - 1 : N;
+    size_t n = asm_min(N, (size_t)ASM_MAX_LEN - 1);
 
     size_t i;
-    for (i = 0; i < n; i++) {
+    for (i = 0; i < n && s2[i] != '\0'; i++) {
         s1[i] = s2[i];
     }
-    s1[n] = '\0';
+    s1[i] = '\0';
 
-    return (int)n;
+    return (int)i;
 }
 
 /**

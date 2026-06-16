@@ -70,7 +70,7 @@ struct Word_Array word_array_alloc()
     return word_array;
 }
 
-#define word_array_print(word_array) al_dprintINFO("%s = ", #word_array); word_array_print_imp(word_array, 7)
+#define word_array_print(word_array) do {al_dprintINFO("%s = ", #word_array); word_array_print_imp(word_array, 7);} while (0)
 void word_array_print_imp(struct Word_Array wa, size_t padding)
 {
     for (size_t i = 0; i < wa.length; i++) {
@@ -78,7 +78,7 @@ void word_array_print_imp(struct Word_Array wa, size_t padding)
     }
 }
 
-#define function_definition_print(tokens, func_def) al_dprintINFO("%s = ", #func_def); function_definition_print_imp(tokens, func_def, 11)
+#define function_definition_print(tokens, func_def) do {al_dprintINFO("%s = ", #func_def); function_definition_print_imp(tokens, func_def, 11);} while (0)
 void function_definition_print_imp(struct Tokens tokens, struct Function_Definition func_def, size_t padding)
 {
     printf("%*.sname              -> %s\n", (int)padding, "", func_def.name);
@@ -98,7 +98,7 @@ void function_definition_print_imp(struct Tokens tokens, struct Function_Definit
     al_token_print(tokens.elements[func_def.RBRACE_index]);
 }
 
-#define func_def_array_print(func_def_array) al_dprintINFO("%s = ", #func_def_array); func_def_array_print_imp(func_def_array, 11)
+#define func_def_array_print(func_def_array) do {al_dprintINFO("%s = ", #func_def_array); func_def_array_print_imp(func_def_array, 11);} while (0)
 void func_def_array_print_imp (struct Func_Def_Array func_def_array, size_t padding)
 {
     for (size_t i = 0; i < func_def_array.length; i++) {
@@ -149,6 +149,10 @@ bool path_is_regular_file(const char *path)
 bool path_is_absolute(const char *path)
 {
     if (path == NULL || path[0] == '\0') {
+        return FAIL;
+    }
+
+    if (asm_length(path) <= 2) {
         return FAIL;
     }
 
@@ -349,7 +353,7 @@ bool path_is_valid_file(const char *path)
     return SUCCESS;
 }
 
-void join_two_paths(char *des, char *p1, char *p2) 
+bool join_two_paths(char *des, char *p1, char *p2) 
 {
     size_t p1_len = asm_length(p1);
     size_t p2_len = asm_length(p2);
@@ -366,13 +370,21 @@ void join_two_paths(char *des, char *p1, char *p2)
         snprintf(des, ASM_MAX_LEN, "%s%c%s", p1, DIR_SEPARATOR, p2);
     }
 
-    path_fix(des);
+    if (FAIL == path_fix(des)) {
+        al_dprintERROR("Could not fix path '%s'.", des);
+        return FAIL;
+    }
+
+    return SUCCESS;
 }
 
 bool directory_get_from_path(char *dir_des, char *path) 
 {
     size_t path_len = asm_length(path);
-    if (path_len == 0) return SUCCESS;
+    if (path_len == 0) {
+        dir_des[0] = '\0';
+        return SUCCESS;
+    }
 
     size_t last_separator_index = path_len;
 
@@ -425,28 +437,39 @@ bool include_paths_get_from_tokens(struct Word_Array *word_array, struct Tokens 
     return SUCCESS;
 }
 
-void path_add_prefix(struct Word_Array path_array, char * prefix)
+bool paths_add_prefix(struct Word_Array path_array, char * prefix)
 {
     for (size_t i = 0; i < path_array.length; i++) {
         Word current_word;
         Word joined;
 
         asm_strncpy(current_word, path_array.elements[i], ASM_MAX_LEN);
-        join_two_paths(joined, prefix, current_word);
+        if (FAIL == join_two_paths(joined, prefix, current_word)) {
+            al_dprintERROR("Could not join path2 '%s' to path1 '%s'.", current_word, prefix);
+            return FAIL;
+        }
         asm_strncpy(path_array.elements[i], joined, ASM_MAX_LEN);
     }
+
+    return SUCCESS;
 }
 
 bool includes_path_get_from_lexed_file(struct Word_Array *include_paths, struct Tokens lexed_file)
 {
-    include_paths_get_from_tokens(include_paths, lexed_file);
+    if (FAIL == include_paths_get_from_tokens(include_paths, lexed_file)) {
+        al_dprintERROR("Failed to get the include paths from the tokens of '%s'.", lexed_file.file_path);
+        return FAIL;
+    }
     Word entry_file_absolute_dir;
     if (FAIL == directory_get_from_path(entry_file_absolute_dir, lexed_file.file_path))
     {
         al_dprintERROR("Failed to get the absolute path of '%s'", lexed_file.file_path);
         return FAIL;
     }
-    path_add_prefix(*include_paths, entry_file_absolute_dir);
+    if (FAIL == paths_add_prefix(*include_paths, entry_file_absolute_dir)) {
+        al_dprintERROR("Could not add prefix '%s' to paths.", entry_file_absolute_dir);
+        return FAIL;
+    }
 
     return SUCCESS;
 }
@@ -566,14 +589,22 @@ bool token_sequence_at_start_index_is_function_definition(struct Tokens tokens, 
             start_token.location.col, al_token_kind_name(start_token.kind), (int)start_token.text_len, start_token.text);
         return FAIL;
     }
-    struct Token start_p1_token = tokens.elements[start_index + 1];
-    if (start_p1_token.kind != TOKEN_LPAREN) {
-        if (to_log) al_dprintERROR("Token at start index + 1 (%zu) of file '%s' is not an LPAREN."
-            "The token at index %zu: %4zu:%-3zu:(%-19s) -> \"%.*s\".", start_index + 1, tokens.file_path, start_index + 1, start_p1_token.location.line_num,
-            start_p1_token.location.col, al_token_kind_name(start_p1_token.kind), (int)start_p1_token.text_len, start_p1_token.text);
+    size_t LPAREN_index_candidate = start_index + 1;
+    while (tokens.elements[LPAREN_index_candidate].kind == TOKEN_COMMENT) {
+        LPAREN_index_candidate++;
+        if (LPAREN_index_candidate >= tokens.length) {
+            if (to_log) al_dprintERROR("%s", "Could not find LPAREN token.");
+            return FAIL;
+        }
+    }
+    struct Token LPAREN_token_candidate = tokens.elements[LPAREN_index_candidate];
+    if (LPAREN_token_candidate.kind != TOKEN_LPAREN) {
+        if (to_log) al_dprintERROR("Token at LPAREN index candidate (%zu) of file '%s' is not an LPAREN."
+            "The token at index %zu: %4zu:%-3zu:(%-19s) -> \"%.*s\".", LPAREN_index_candidate, tokens.file_path, LPAREN_index_candidate, LPAREN_token_candidate.location.line_num,
+            LPAREN_token_candidate.location.col, al_token_kind_name(LPAREN_token_candidate.kind), (int)LPAREN_token_candidate.text_len, LPAREN_token_candidate.text);
         return FAIL;
     }
-    size_t matching_RPAREN_index = 0, LPAREN_index = start_index + 1;
+    size_t matching_RPAREN_index = 0, LPAREN_index = LPAREN_index_candidate;
     if (FAIL == LPAREN_find_matching_RPAREN(tokens, LPAREN_index, &matching_RPAREN_index, to_log)) {
         if (to_log) al_dprintERROR("Could not find matching RPAREN for the token at index %zu of file '%s'."
             "The token at index %zu: %4zu:%-3zu:(%-19s) -> \"%.*s\".",LPAREN_index, tokens.file_path, LPAREN_index,
@@ -582,7 +613,15 @@ bool token_sequence_at_start_index_is_function_definition(struct Tokens tokens, 
             tokens.elements[LPAREN_index].text);
         return FAIL;
     }
-    size_t matching_RBRACE_index = 0, LBRACE_index = matching_RPAREN_index + 1;
+    size_t LBRACE_index_candidate = matching_RPAREN_index + 1;
+    while (tokens.elements[LBRACE_index_candidate].kind == TOKEN_COMMENT) {
+        LBRACE_index_candidate++;
+        if (LBRACE_index_candidate >= tokens.length) {
+            if (to_log) al_dprintERROR("%s", "Could not find LBRACE token.");
+            return FAIL;
+        }
+    }
+    size_t matching_RBRACE_index = 0, LBRACE_index = LBRACE_index_candidate;
     if (LBRACE_index >= tokens.length) {
         if (to_log) al_dprintERROR("LBRACE index (%zu) is bigger than tokens.length %zu.", LBRACE_index, tokens.length);
         return FAIL;
@@ -622,7 +661,10 @@ bool func_def_array_get_from_lexed_files_index(struct Lexed_Files lexed_files, s
         struct Function_Definition current_func = {0};
         if (SUCCESS == token_sequence_at_start_index_is_function_definition(tokens, i, &current_func, false)) {
             current_func.file_index = (int)file_index;
-            if (func_def_array) ada_appand(struct Function_Definition, *func_def_array, current_func);
+            if (func_def_array) {
+                ada_appand(struct Function_Definition, *func_def_array, current_func);
+                i = current_func.RBRACE_index + 1;
+            }
         }
     }
 
@@ -669,11 +711,18 @@ int main(int argc, char const *argv[])
     if (SUCCESS == path_is_absolute(entry_file_relative_path)) {
         asm_strncpy(entry_file_absolute_path, entry_file_relative_path, ASM_MAX_LEN);
     } else {
-        join_two_paths(entry_file_absolute_path, current_working_directory, (char *)entry_file_relative_path);
+        if (FAIL == join_two_paths(entry_file_absolute_path, current_working_directory, (char *)entry_file_relative_path)) {
+            al_dprintERROR("Could not join path2 '%s' to path1 '%s'.", (char *)entry_file_relative_path, current_working_directory);
+            return -1;
+        }
         if (FAIL == path_is_absolute(entry_file_absolute_path)) {
             al_dprintERROR("Could not create an absolute path to the entry file. Created: '%s'", entry_file_absolute_path);
             return -1;
         }
+    }
+    if (FAIL == path_fix(entry_file_absolute_path)) {
+        al_dprintERROR("Could not fix path '%s'", entry_file_absolute_path);
+        return -1;
     }
     asm_dprintSTRING(entry_file_absolute_path);
 

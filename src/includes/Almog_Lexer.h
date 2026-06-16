@@ -492,6 +492,10 @@ struct Tokens al_lex_entire_file(char *file_path)
     char temp_str[ASM_MAX_LEN];
     int len = 0;
     while ((len = asm_get_line(fp, temp_str)) != EOF) {
+        if (len == -2) {
+            al_dprintERROR("Line too long. Max length of a line can be %d. Try increasing the macro ASM_MAX_LEN.", ASM_MAX_LEN - 1);
+            exit(1);
+        }
         for (int i = 0; i < len; i++) {
             ada_appand(char, tokens.content, temp_str[i]);
         }
@@ -628,7 +632,7 @@ struct Token al_lexer_next_token(struct Lexer *l)
 
     if (l->cursor >= l->content_len) {
         token.kind = TOKEN_EOF;
-    } else if (l->content[l->cursor] == '#' && token.location.col == 1) {
+    } else if (l->content[l->cursor] == '#') {
         token.kind = TOKEN_PP_DIRECTIVE;
         for (;l->cursor < l->content_len && l->content[l->cursor] != '\n';) {
             al_lexer_chop_char(l);
@@ -651,30 +655,34 @@ struct Token al_lexer_next_token(struct Lexer *l)
                 }
             }
         }
-    } else if (l->content[l->cursor] == '"') {
+        } else if (l->content[l->cursor] == '"') {
         token.kind = TOKEN_STRING_LIT;
         al_lexer_chop_char(l);
-        token.text++;
-        start = l->cursor+1;
+        token.text = &l->content[l->cursor];
+        start = l->cursor;
 
         for ( ; (l->cursor < l->content_len) && (l->content[l->cursor] != '"') && (l->content[l->cursor] != '\n'); ) {
             al_lexer_chop_char(l);
         }
+        token.text_len = l->cursor - start;
         if ((l->cursor < l->content_len) && (l->content[l->cursor] == '"')) {
             al_lexer_chop_char(l);
         }
+        return token;
     } else if (l->content[l->cursor] == '\'') {
         token.kind = TOKEN_CHAR_LIT;
         al_lexer_chop_char(l);
-        token.text++;
-        start = l->cursor+1;
+        token.text = &l->content[l->cursor];
+        start = l->cursor;
 
         for ( ; (l->cursor < l->content_len) && (l->content[l->cursor] != '\'') && (l->content[l->cursor] != '\n'); ) {
             al_lexer_chop_char(l);
         }
+        token.text_len = l->cursor - start;
         if ((l->cursor < l->content_len) && (l->content[l->cursor] == '\'')) {
             al_lexer_chop_char(l);
         }
+        return token;
     } else if (al_lexer_start_with(l, "//")) {
         token.kind = TOKEN_COMMENT;
         for (;l->cursor < l->content_len && l->content[l->cursor] != '\n';) {
@@ -1067,7 +1075,12 @@ struct Tokens al_tokens_alloc(void)
     ada_init_array(struct Token, tokens);
     ada_init_array(char, tokens.content);
     tokens.current_token = 0;
-    tokens.file_path = (char *)malloc(sizeof(char) * ASM_MAX_LEN);
+    tokens.file_path = (char *)AL_MALLOC(sizeof(char) * ASM_MAX_LEN);
+    if (tokens.file_path == NULL) {
+        al_dprintERROR("%s", "Allocation Failed.");
+        exit(1);
+    }
+    tokens.file_path[0] = '\0';
 
     return tokens;
 }

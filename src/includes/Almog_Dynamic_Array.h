@@ -124,11 +124,13 @@
  *
  * @note Allocation uses ADA_MALLOC and is checked via ADA_ASSERT.
  */
-#define ada_init_array(type, header) do {                                       \
-        (header).capacity = ADA_INIT_CAPACITY;                                        \
-        (header).length = 0;                                                      \
+#define ada_init_array(type, header) do {                                           \
+        (header).capacity = ADA_INIT_CAPACITY;                                      \
+        (header).length = 0;                                                        \
         (header).elements = (type *)ADA_MALLOC(sizeof(type) * (header).capacity);   \
-        ADA_ASSERT((header).elements != NULL);                                    \
+        if ((header).elements == NULL) {                                            \
+            ADA_EXIT(1);                                                            \
+        }                                                                           \
     } while (0)
 
     /**
@@ -203,11 +205,13 @@
 #define ada_insert(type, header, value, index) do {                                                             \
     ADA_ASSERT((int)(index) >= 0);                                                                              \
     ADA_ASSERT((float)(index) - (int)(index) == 0);                                                             \
-    ada_appand(type, (header), (header).elements[(header).length-1]);                                                 \
-    for (int ada_for_loop_index = (header).length-2; ada_for_loop_index > (int)(index); ada_for_loop_index--) {   \
-        (header).elements[ada_for_loop_index] = (header).elements [ada_for_loop_index-1];                           \
+    ADA_ASSERT((header).length > 0 && "You can not insert to an empty array.");                                 \
+    ADA_ASSERT(index <= (header).length);                                                                       \
+    ada_appand(type, (header), (header).elements[(header).length-1]);                                           \
+    for (int ada_for_loop_index = (header).length-2; ada_for_loop_index > (int)(index); ada_for_loop_index--) { \
+        (header).elements[ada_for_loop_index] = (header).elements [ada_for_loop_index-1];                       \
     }                                                                                                           \
-    (header).elements[(index)] = value;                                                                           \
+    (header).elements[(index)] = value;                                                                         \
 } while (0)
 
 
@@ -229,11 +233,12 @@
 #define ada_insert_unordered(type, header, value, index) do {   \
     ADA_ASSERT((int)(index) >= 0);                              \
     ADA_ASSERT((float)(index) - (int)(index) == 0);             \
-    if ((size_t)(index) == (header).length) {                     \
-        ada_appand(type, (header), value);                        \
+    ADA_ASSERT(index <= (header).length);                       \
+    if ((size_t)(index) == (header).length) {                   \
+        ada_appand(type, (header), value);                      \
     } else {                                                    \
-        ada_appand(type, (header), (header).elements[(index)]);     \
-        (header).elements[(index)] = value;                       \
+        ada_appand(type, (header), (header).elements[(index)]); \
+        (header).elements[(index)] = value;                     \
     }                                                           \
 } while (0)
 
@@ -250,13 +255,15 @@
  *       left by one position. The element beyond the new length is left
  *       uninitialized.
  */
-#define ada_remove(type, header, index) do {                                                                \
-    ADA_ASSERT((int)(index) >= 0);                                                                          \
-    ADA_ASSERT((float)(index) - (int)(index) == 0);                                                         \
-    for (size_t ada_for_loop_index = (index); ada_for_loop_index < (header).length-1; ada_for_loop_index++) { \
+#define ada_remove(type, header, index) do {                                                                    \
+    ADA_ASSERT((int)(index) >= 0);                                                                              \
+    ADA_ASSERT((header).length > 0 && "You can not remove from an empty array.");                               \
+    ADA_ASSERT((float)(index) - (int)(index) == 0);                                                             \
+    ADA_ASSERT(index < (header).length);                                                                        \
+    for (size_t ada_for_loop_index = (index); ada_for_loop_index < (header).length-1; ada_for_loop_index++) {   \
         (header).elements[ada_for_loop_index] = (header).elements[ada_for_loop_index+1];                        \
-    }                                                                                                       \
-    (header).length--;                                                                                        \
+    }                                                                                                           \
+    (header).length--;                                                                                          \
 } while (0)
 
 /**
@@ -271,11 +278,13 @@
  * @pre 0 <= index < header.length and header.length > 0.
  * @post header.length is decremented by 1; array order is not preserved.
  */
-#define ada_remove_unordered(type, header, index) do {          \
-    ADA_ASSERT((int)(index) >= 0);                              \
-    ADA_ASSERT((float)(index) - (int)(index) == 0);             \
-    (header).elements[index] = (header).elements[(header).length-1];  \
-    (header).length--;                                            \
+#define ada_remove_unordered(type, header, index) do {                              \
+    ADA_ASSERT((int)(index) >= 0);                                                  \
+    ADA_ASSERT((header).length > 0 && "You can not remove from an empty array.");   \
+    ADA_ASSERT(index < (header).length);                                            \
+    ADA_ASSERT((float)(index) - (int)(index) == 0);                                 \
+    (header).elements[index] = (header).elements[(header).length-1];                \
+    (header).length--;                                                              \
 } while (0)
 
 
