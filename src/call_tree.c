@@ -319,6 +319,30 @@ bool LBRACE_find_matching_RBRACE(struct Tokens tokens, size_t LBRACE_index, size
     return FAIL;
 }
 
+size_t function_definition_real_start_index_get(struct Tokens tokens, size_t name_index)
+{
+    size_t i = name_index;
+
+    while (i > 0) {
+        enum Token_Kind prev_kind = tokens.elements[i - 1].kind;
+
+        if (prev_kind == TOKEN_SEMICOLON ||
+            prev_kind == TOKEN_LBRACE ||
+            prev_kind == TOKEN_RBRACE ||
+            prev_kind == TOKEN_PP_DIRECTIVE) {
+            break;
+        }
+
+        i--;
+    }
+
+    while (i < name_index && tokens.elements[i].kind == TOKEN_COMMENT) {
+        i++;
+    }
+
+    return i;
+}
+
 bool token_sequence_at_start_index_is_function_definition(struct Tokens tokens, size_t start_index, struct Function_Definition *func_def, bool to_log) {
     if (start_index + 1 >= tokens.length) {
         if (to_log) al_dprintERROR("Start index + 1 (%zu) is bigger than tokens.length %zu.", start_index + 1, tokens.length);
@@ -381,10 +405,11 @@ bool token_sequence_at_start_index_is_function_definition(struct Tokens tokens, 
     }
 
     if (func_def) {
+        size_t real_start_index = function_definition_real_start_index_get(tokens, start_index);
         asm_strncpy(func_def->name, start_token.text, start_token.text_len);
         asm_strncpy(func_def->file_name, tokens.file_path, ASM_MAX_LEN);
         func_def->file_index = -1;
-        func_def->token_start_index = start_index;
+        func_def->token_start_index = real_start_index;
         func_def->token_end_index = matching_RBRACE_index;
         func_def->start_line = tokens.elements[func_def->token_start_index].location.line_num;
         func_def->end_line = tokens.elements[func_def->token_end_index].location.line_num;
@@ -392,7 +417,7 @@ bool token_sequence_at_start_index_is_function_definition(struct Tokens tokens, 
         func_def->RPAREN_index = matching_RPAREN_index;
         func_def->LBRACE_index = LBRACE_index;
         func_def->RBRACE_index = matching_RBRACE_index;
-    };
+    }
 
     return SUCCESS;
 }

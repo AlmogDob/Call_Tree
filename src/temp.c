@@ -1,7 +1,6 @@
 #define ALMOG_STRING_MANIPULATION_IMPLEMENTATION
 #define ALMOG_LEXER_IMPLEMENTATION
-#include "./includes/Almog\
-_Lexer.h"
+#include "./includes/Almog_Lexer.h"
 
 int main(void)
 {
