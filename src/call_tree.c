@@ -57,6 +57,21 @@ struct Func_Call_Array {
     struct Function_Call *elements;
 };
 
+struct Macro_Definition {
+    char name[ASM_MAX_LEN];
+    char file_name[ASM_MAX_LEN];
+    int file_index;
+    size_t pp_token_index;
+    size_t start_line;
+    size_t end_line;
+};
+
+struct Macro_Def_Array {
+    size_t length;
+    size_t capacity;
+    struct Macro_Definition *elements;
+};
+
 struct Apm_Word_Array word_array_alloc() 
 {
     struct Apm_Word_Array word_array = {
@@ -640,6 +655,204 @@ void func_def_array_content_print_to_output_target(FILE *output_target, struct F
     }
 }
 
+bool pp_directive_get_define_name(char *name_out, struct Token pp_token, bool to_log)
+{
+    if (pp_token.kind != TOKEN_PP_DIRECTIVE) {
+        if (to_log) {
+            al_dprintERROR("%s", "Input token is not a preprocessor directive.");
+        }
+        return FAIL;
+    }
+    if (pp_token.text_len >= ASM_MAX_LEN) {
+        if (to_log) {
+            al_dprintERROR("Preprocessor directive is too long (%zu >= %d).", pp_token.text_len, ASM_MAX_LEN);
+        }
+        return FAIL;
+    }
+
+    char line[ASM_MAX_LEN];
+    asm_strncpy(line, pp_token.text, pp_token.text_len);
+    line[pp_token.text_len] = '\0';
+    pp_directive_splice_lines(line);
+
+    size_t i = 0;
+    while (asm_isspace(line[i])) {
+        i++;
+    }
+    if (line[i++] != '#') {
+        return FAIL;
+    }
+    while (asm_isspace(line[i])) {
+        i++;
+    }
+    if (!asm_strncmp(line + i, "define", 6)) {
+        return FAIL;
+    }
+    i += 6;
+
+    if (!asm_isspace(line[i])) {
+        /* Reject things like "#defined" */
+        return FAIL;
+    }
+    while (asm_isspace(line[i])) {
+        i++;
+    }
+
+    if (!al_is_identifier_start(line[i])) {
+        if (to_log) {
+            al_dprintERROR("Could not parse macro name from directive: \"%s\"", line);
+        }
+        return FAIL;
+    }
+
+    size_t j = 0;
+    while (al_is_identifier(line[i])) {
+        if (j + 1 >= ASM_MAX_LEN) {
+            if (to_log) {
+                al_dprintERROR("%s", "Macro name is too long.");
+            }
+            return FAIL;
+        }
+        name_out[j++] = line[i++];
+    }
+    name_out[j] = '\0';
+
+    return SUCCESS;
+}
+
+bool token_sequence_at_index_is_macro_definition(struct Tokens tokens, size_t token_index, struct Macro_Definition *macro_def, bool to_log)
+{
+    if (token_index >= tokens.length) {
+        if (to_log) {
+            al_dprintERROR("Token index %zu is out of range. tokens.length = %zu", token_index, tokens.length);
+        }
+        return FAIL;
+    }
+
+    struct Token token = tokens.elements[token_index];
+    char macro_name[ASM_MAX_LEN];
+
+    if (FAIL == pp_directive_get_define_name(macro_name, token, to_log)) {
+        if (to_log) {
+            al_dprintERROR("%s", "Could not get macro name form PP directive.");
+        }
+        return FAIL;
+    }
+
+    if (macro_def) {
+        asm_strncpy(macro_def->name, macro_name, ASM_MAX_LEN);
+        asm_strncpy(macro_def->file_name, tokens.file_path, ASM_MAX_LEN);
+        macro_def->file_index = -1;
+        macro_def->pp_token_index = token_index;
+        macro_def->start_line = token.location.line_num;
+        macro_def->end_line = token.location.line_num;
+    }
+
+    return SUCCESS;
+}
+
+bool macro_def_array_get_from_lexed_files_index(struct Lexed_Files lexed_files, size_t file_index, struct Macro_Def_Array *macro_def_array)
+{
+    if (file_index >= lexed_files.length) {
+        al_dprintERROR("File index %zu is bigger than lexed_files.length %zu", file_index, lexed_files.length);
+        return FAIL;
+    }
+
+    struct Tokens tokens = lexed_files.elements[file_index];
+
+    for (size_t i = 0; i < tokens.length; i++) {
+        struct Macro_Definition current_macro = {0};
+
+        if (SUCCESS == token_sequence_at_index_is_macro_definition(tokens, i, &current_macro, false)) {
+            current_macro.file_index = (int)file_index;
+            ada_appand(struct Macro_Definition, *macro_def_array, current_macro);
+        }
+    }
+
+    return SUCCESS;
+}
+
+bool macro_definitions_get_from_lexed_files(struct Lexed_Files lexed_files, struct Macro_Def_Array *macro_def_array)
+{
+    for (size_t i = 0; i < lexed_files.length; i++) {
+        if (FAIL == macro_def_array_get_from_lexed_files_index(lexed_files, i, macro_def_array)) {
+            al_dprintERROR("Could not get macro definitions from file index %zu '%s'.", i, lexed_files.elements[i].file_path);
+            return FAIL;
+        }
+    }
+
+    return SUCCESS;
+}
+
+int macro_def_index_get_by_name(struct Macro_Def_Array macro_def_array, const char *macro_name)
+{
+    for (size_t i = 0; i < macro_def_array.length; i++) {
+        if (asm_strncmp(macro_def_array.elements[i].name, macro_name, ASM_MAX_LEN)) {
+            return (int)i;
+        }
+    }
+
+    return -1;
+}
+
+bool macro_def_in_macro_def_array(struct Macro_Def_Array macro_def_array, struct Macro_Definition macro_def)
+{
+    for (size_t i = 0; i < macro_def_array.length; i++) {
+        if (asm_strncmp(macro_def_array.elements[i].name, macro_def.name, ASM_MAX_LEN)) {
+            return SUCCESS;
+        }
+    }
+
+    return FAIL;
+}
+
+void macro_defs_used_in_func_def_get(struct Lexed_Files lexed_files, struct Function_Definition func_def, struct Macro_Def_Array all_macro_defs, struct Macro_Def_Array *used_macro_defs)
+{
+    struct Tokens tokens = lexed_files.elements[func_def.file_index];
+
+    for (size_t i = func_def.token_start_index; i <= func_def.token_end_index; i++) {
+        struct Token token = tokens.elements[i];
+        if (token.kind != TOKEN_IDENTIFIER) {
+            continue;
+        }
+
+        for (size_t j = 0; j < all_macro_defs.length; j++) {
+            struct Macro_Definition macro_def = all_macro_defs.elements[j];
+            if (al_token_text_equals_str(token, macro_def.name)) {
+                if (FAIL == macro_def_in_macro_def_array(*used_macro_defs, macro_def)) {
+                    ada_appand(struct Macro_Definition, *used_macro_defs, macro_def);
+                }
+                break;
+            }
+        }
+    }
+}
+
+void macro_defs_used_in_func_def_array_get(struct Lexed_Files lexed_files, struct Func_Def_Array func_defs_to_print, struct Macro_Def_Array all_macro_defs, struct Macro_Def_Array *used_macro_defs)
+{
+    for (size_t i = 0; i < func_defs_to_print.length; i++) {
+        macro_defs_used_in_func_def_get(lexed_files, func_defs_to_print.elements[i], all_macro_defs, used_macro_defs);
+    }
+}
+
+void macro_def_array_content_print_to_output_target(FILE *output_target, struct Macro_Def_Array macro_def_array, struct Lexed_Files lexed_files)
+{
+    for (size_t i = 0; i < macro_def_array.length; i++) {
+        struct Macro_Definition macro_def = macro_def_array.elements[i];
+        struct Tokens tokens = lexed_files.elements[macro_def.file_index];
+        struct Token pp_token = tokens.elements[macro_def.pp_token_index];
+
+        fwrite(pp_token.text, 1, pp_token.text_len, output_target);
+
+        if (pp_token.text_len == 0 ||
+            pp_token.text[pp_token.text_len - 1] != '\n') {
+            fputc('\n', output_target);
+        }
+
+        fputc('\n', output_target);
+    }
+}
+
 int main(int argc, char const *argv[])
 {
     FILE *output_target = stdout;
@@ -739,7 +952,6 @@ int main(int argc, char const *argv[])
     func_call_array_get_from_func_def_array(lexed_files, func_def_array, &func_call_array);
     // func_call_array_print(func_call_array);
 
-    printf("----------------------------------------\n");
     // size_t file_index = 0;
     // struct Tokens tokens = lexed_files.elements[file_index];
     // for (size_t i = 0; i < tokens.length; i++) {
@@ -758,6 +970,18 @@ int main(int argc, char const *argv[])
     func_defs_to_print_get_from_func_def_index(func_def_array, func_call_array, entry_func_index, &func_defs_to_print);
     // func_def_array_print(func_defs_to_print);
     
+    struct Macro_Def_Array macro_def_array = {0};
+    ada_init_array(struct Macro_Definition, macro_def_array);
+    if (FAIL == macro_definitions_get_from_lexed_files(lexed_files, &macro_def_array)) {
+        al_dprintERROR("%s", "Could not get macro definitions from lexed files.");
+        return -1;
+    }
+
+    struct Macro_Def_Array used_macro_defs = {0};
+    ada_init_array(struct Macro_Definition, used_macro_defs);
+    macro_defs_used_in_func_def_array_get(lexed_files, func_defs_to_print, macro_def_array, &used_macro_defs);
+    
+    macro_def_array_content_print_to_output_target(output_target, used_macro_defs, lexed_files);
     func_def_array_content_print_to_output_target(output_target, func_defs_to_print, lexed_files);
 
 
@@ -770,5 +994,7 @@ int main(int argc, char const *argv[])
     AL_FREE(lexed_files.elements);
     AL_FREE(func_def_array.elements);
     AL_FREE(func_call_array.elements);
+    AL_FREE(macro_def_array.elements);
+    AL_FREE(used_macro_defs.elements);
     return 0;
 }

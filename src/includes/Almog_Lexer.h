@@ -443,6 +443,7 @@ void            al_lexer_trim_left(struct Lexer *l);
 char            al_lexer_peek(const struct Lexer *l, size_t off);
 void            al_token_print(struct Token tok);
 const char *    al_token_kind_name(enum Token_Kind kind);
+bool            al_token_text_equals_str(struct Token token, const char *str);
 struct Tokens   al_tokens_alloc(void);
 void            al_tokens_free(struct Tokens tokens);
 
@@ -1127,6 +1128,13 @@ const char *al_token_kind_name(enum Token_Kind kind)
     }
     return NULL;
 }
+
+bool al_token_text_equals_str(struct Token token, const char *str)
+{
+    size_t s_len = asm_length(str);
+    return token.text_len == s_len && asm_strncmp(token.text, str, s_len);
+}
+
 
 struct Tokens al_tokens_alloc(void)
 {

@@ -61,7 +61,7 @@
  * character (so the resulting string length is ASM_MAX_LEN - 1).
  */
 #ifndef ASM_MAX_LEN
-#define ASM_MAX_LEN (int)1e3
+#define ASM_MAX_LEN (int)1.5e3
 #endif
 
 /**
