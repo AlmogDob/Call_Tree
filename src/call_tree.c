@@ -622,26 +622,96 @@ bool func_def_in_func_def_array(struct Func_Def_Array func_def_array, struct Fun
     return FAIL;
 }
 
-void func_defs_to_print_get_from_func_def_index(struct Func_Def_Array func_def_array, struct Func_Call_Array func_call_array, size_t entry_func_def_index, struct Func_Def_Array *func_defs_to_print)
+static bool func_defs_to_print_visit(struct Func_Def_Array func_def_array, struct Func_Call_Array func_call_array, size_t func_def_index, unsigned char *state, struct Func_Def_Array *func_defs_to_print)
 {
-    struct Function_Definition entry_func_def = func_def_array.elements[entry_func_def_index];
-    if (SUCCESS == func_def_in_func_def_array(*func_defs_to_print, entry_func_def)) {
-        return;
+    /* by AI */
+
+    /**
+     *  state = 0 -> not visited 
+     *  state = 1 -> currently being visited 
+     *  state = 2 -> finished and added to the output
+     */
+    if (state[func_def_index] == 2) {
+        return SUCCESS;
     }
-    ada_appand(struct Function_Definition, *func_defs_to_print, entry_func_def);
+
+    if (state[func_def_index] == 1) {
+        /*
+        * Already on the current traversal path.
+        * Forward declarations will handle this dependency.
+        */
+        return SUCCESS;
+    }
+
+    state[func_def_index] = 1;
 
     for (size_t i = 0; i < func_call_array.length; i++) {
-        struct Function_Call current_func_call = func_call_array.elements[i];
-        if (current_func_call.called_at_func_def_index == entry_func_def_index && current_func_call.definition_func_def_index >= 0) {
-            func_defs_to_print_get_from_func_def_index(func_def_array, func_call_array, current_func_call.definition_func_def_index, func_defs_to_print);
+        struct Function_Call call = func_call_array.elements[i];
+
+        if (call.called_at_func_def_index < 0 || (size_t)call.called_at_func_def_index != func_def_index ||
+            call.definition_func_def_index < 0) {
+            continue;
+        }
+
+        size_t callee_index = (size_t)call.definition_func_def_index;
+
+        if (callee_index >= func_def_array.length) {
+            al_dprintERROR("%s", "Invalid callee definition index.");
+            return FAIL;
+        }
+
+        /*
+         * Direct self-recursion is valid in C: the function's name is
+         * already declared within its own body.
+         */
+        if (callee_index == func_def_index) {
+            continue;
+        }
+
+        if (FAIL == func_defs_to_print_visit(func_def_array, func_call_array, callee_index, state, func_defs_to_print)) {
+            return FAIL;
         }
     }
+
+    /* Append only AFTER all callees have been appended. */
+    ada_appand(struct Function_Definition, *func_defs_to_print, func_def_array.elements[func_def_index]);
+
+    state[func_def_index] = 2;
+    return SUCCESS;
+}
+
+bool func_defs_to_print_get_from_func_def_index(struct Func_Def_Array func_def_array, struct Func_Call_Array func_call_array, size_t entry_func_def_index, struct Func_Def_Array *func_defs_to_print)
+{
+    if (func_defs_to_print == NULL || entry_func_def_index >= func_def_array.length) {
+        return FAIL;
+    }
+
+    unsigned char *state = AL_MALLOC(func_def_array.length * sizeof(*state));
+    if (state == NULL) {
+        al_dprintERROR("%s", "Could not allocate traversal state.");
+        return FAIL;
+    }
+
+    for (size_t i = 0; i < func_def_array.length; i++) {
+        state[i] = 0;
+    }
+
+    size_t original_length = func_defs_to_print->length;
+
+    bool result = func_defs_to_print_visit(func_def_array, func_call_array, entry_func_def_index, state, func_defs_to_print);
+
+    if (result == FAIL) {
+        func_defs_to_print->length = original_length;
+    }
+
+    AL_FREE(state);
+    return result;
 }
 
 void func_def_array_content_print_to_output_target(FILE *output_target, struct Func_Def_Array func_def_array, struct Lexed_Files lexed_files)
 {
-    for (size_t i = func_def_array.length; i > 0; i--) {
-        size_t current_func_def_index = i - 1;
+    for (size_t i = 0; i < func_def_array.length; i++) {
+        size_t current_func_def_index = i;
         struct Function_Definition current_func_def = func_def_array.elements[current_func_def_index];
         struct Tokens tokens = lexed_files.elements[current_func_def.file_index];
         const char *start_char_pointer = tokens.elements[current_func_def.token_start_index].text;
@@ -808,6 +878,7 @@ bool macro_def_in_macro_def_array(struct Macro_Def_Array macro_def_array, struct
 
 void macro_defs_used_in_func_def_get(struct Lexed_Files lexed_files, struct Function_Definition func_def, struct Macro_Def_Array all_macro_defs, struct Macro_Def_Array *used_macro_defs)
 {
+    /* By AI */
     struct Tokens tokens = lexed_files.elements[func_def.file_index];
 
     for (size_t i = func_def.token_start_index; i <= func_def.token_end_index; i++) {
@@ -830,6 +901,7 @@ void macro_defs_used_in_func_def_get(struct Lexed_Files lexed_files, struct Func
 
 void macro_defs_used_in_func_def_array_get(struct Lexed_Files lexed_files, struct Func_Def_Array func_defs_to_print, struct Macro_Def_Array all_macro_defs, struct Macro_Def_Array *used_macro_defs)
 {
+    /* By AI */
     for (size_t i = 0; i < func_defs_to_print.length; i++) {
         macro_defs_used_in_func_def_get(lexed_files, func_defs_to_print.elements[i], all_macro_defs, used_macro_defs);
     }
@@ -837,6 +909,7 @@ void macro_defs_used_in_func_def_array_get(struct Lexed_Files lexed_files, struc
 
 void macro_def_array_content_print_to_output_target(FILE *output_target, struct Macro_Def_Array macro_def_array, struct Lexed_Files lexed_files)
 {
+    /* By AI */
     for (size_t i = 0; i < macro_def_array.length; i++) {
         struct Macro_Definition macro_def = macro_def_array.elements[i];
         struct Tokens tokens = lexed_files.elements[macro_def.file_index];
@@ -850,6 +923,268 @@ void macro_def_array_content_print_to_output_target(FILE *output_target, struct 
         }
 
         fputc('\n', output_target);
+    }
+}
+
+static size_t macro_text_skip_trivia(const char *text, size_t i)
+{
+    /* By AI */
+    for (;;) {
+        while (asm_isspace(text[i])) {
+            i++;
+        }
+
+        if (text[i] == '/' && text[i + 1] == '*') {
+            i += 2;
+
+            while (text[i] != '\0' &&
+                   !(text[i] == '*' && text[i + 1] == '/')) {
+                i++;
+            }
+
+            if (text[i] != '\0') {
+                i += 2;
+            }
+
+            continue;
+        }
+
+        return i;
+    }
+}
+
+static void macro_function_call_record(const char *name, const char *text, size_t after_name, struct Macro_Definition macro_def, struct Func_Def_Array func_def_array, int caller_index, struct Func_Call_Array *func_call_array)
+{
+    /* By AI */
+    /*
+     * A negative caller means we are only collecting macro dependencies,
+     * not adding edges to the function-call graph.
+     */
+    if (caller_index < 0) {
+        return;
+    }
+
+    size_t next = macro_text_skip_trivia(text, after_name);
+
+    if (text[next] != '(') {
+        return;
+    }
+
+    int callee_index = func_def_index_get_by_name(func_def_array, name);
+
+    if (callee_index < 0) {
+        /* No definition was found in the lexed files. */
+        return;
+    }
+
+    /* Only one graph edge per caller/callee pair is needed. */
+    for (size_t i = 0; i < func_call_array->length; i++) {
+        struct Function_Call call = func_call_array->elements[i];
+
+        if (call.called_at_func_def_index == caller_index &&
+            call.definition_func_def_index == callee_index) {
+            return;
+        }
+    }
+
+    struct Function_Call call = {0};
+
+    asm_strncpy(call.name, name, ASM_MAX_LEN);
+    asm_strncpy(call.file_name, macro_def.file_name, ASM_MAX_LEN);
+
+    call.file_index = macro_def.file_index;
+    call.called_at_func_def_index = caller_index;
+    call.definition_func_def_index = callee_index;
+    call.start_line = macro_def.start_line;
+    call.end_line = macro_def.end_line;
+
+    /*
+     * Synthetic graph edge, not a normal tokenized function call.
+     * These indexes must not be used by function_call_print_imp().
+     */
+    call.token_start_index = SIZE_MAX;
+    call.token_end_index = SIZE_MAX;
+    call.LPAREN_index = SIZE_MAX;
+    call.RPAREN_index = SIZE_MAX;
+
+    ada_appand(struct Function_Call, *func_call_array, call);
+}
+
+void macro_defs_used_in_macro_def_get(struct Lexed_Files lexed_files, struct Macro_Definition macro_def, struct Macro_Def_Array all_macro_defs, struct Macro_Def_Array *used_macro_defs, struct Func_Def_Array func_def_array, int caller_index, struct Func_Call_Array *func_call_array)
+{
+    /* By AI */
+    struct Tokens tokens = lexed_files.elements[macro_def.file_index];
+    struct Token token = tokens.elements[macro_def.pp_token_index];
+
+    if (token.text_len >= ASM_MAX_LEN) {
+        al_dprintWARNING("Skipping dependencies of macro '%s': directive is too long.", macro_def.name);
+        return;
+    }
+
+    char line[ASM_MAX_LEN];
+    asm_strncpy(line, token.text, token.text_len);
+    line[token.text_len] = '\0';
+    pp_directive_splice_lines(line);
+
+    size_t i = 0;
+
+    /* Skip whitespace, '#', whitespace, 'define', and whitespace. */
+    while (asm_isspace(line[i])) {
+        i++;
+    }
+    if (line[i] != '#') {
+        return;
+    }
+    i++;
+    while (asm_isspace(line[i])) {
+        i++;
+    }
+    if (!asm_strncmp(line + i, "define", 6)) {
+        return;
+    }
+    i += 6;
+    while (asm_isspace(line[i])) {
+        i++;
+    }
+
+    /* Skip the macro's own name. */
+    while (al_is_identifier(line[i])) {
+        i++;
+    }
+
+    /*
+     * For function-like macros, '(' immediately follows the name.
+     * Skip the formal parameter list.
+     */
+    size_t parameters_start = i;
+    size_t parameters_end = i;
+
+    if (line[i] == '(') {
+        i++;
+        while (line[i] != '\0' && line[i] != ')') {
+            i++;
+        }
+        if (line[i] != ')') {
+            return;
+        }
+        i++;
+        parameters_end = i;
+    }
+
+    while (line[i] != '\0') {
+        /* Skip string and character literals. */
+        if (line[i] == '"' || line[i] == '\'') {
+            char quote = line[i++];
+
+            while (line[i] != '\0') {
+                if (line[i] == '\\' && line[i + 1] != '\0') {
+                    i += 2;
+                } else if (line[i++] == quote) {
+                    break;
+                }
+            }
+            continue;
+        }
+
+        /* Skip block comments. */
+        if (line[i] == '/' && line[i + 1] == '*') {
+            i += 2;
+
+            while (line[i] != '\0' &&
+                   !(line[i] == '*' && line[i + 1] == '/')) {
+                i++;
+            }
+
+            if (line[i] != '\0') {
+                i += 2;
+            }
+            continue;
+        }
+
+        /* A line comment consumes the rest of this directive. */
+        if (line[i] == '/' && line[i + 1] == '/') {
+            break;
+        }
+
+        if (!al_is_identifier_start(line[i])) {
+            i++;
+            continue;
+        }
+
+        char name[ASM_MAX_LEN];
+        size_t name_length = 0;
+
+        while (al_is_identifier(line[i])) {
+            name[name_length++] = line[i++];
+        }
+        name[name_length] = '\0';
+
+        /*
+         * Formal parameters are not references to global macros,
+         * even when a macro with the same name exists.
+         */
+        bool is_parameter = false;
+
+        for (size_t p = parameters_start; p < parameters_end;) {
+            if (!al_is_identifier_start(line[p])) {
+                p++;
+                continue;
+            }
+
+            size_t start = p;
+
+            while (p < parameters_end && al_is_identifier(line[p])) {
+                p++;
+            }
+
+            if (p - start == name_length &&
+                asm_strncmp(line + start, name, name_length)) {
+                is_parameter = true;
+                break;
+            }
+        }
+
+        if (is_parameter) {
+            continue;
+        }
+
+        int index = macro_def_index_get_by_name(all_macro_defs, name);
+        if (index >= 0) {
+            struct Macro_Definition dependency = all_macro_defs.elements[index];
+            if (FAIL == macro_def_in_macro_def_array(*used_macro_defs, dependency)) {
+                ada_appand(struct Macro_Definition, *used_macro_defs, dependency);
+            }
+        } else {
+            /*
+            * This identifier is not a known macro. If it is followed by '('
+            * and names a known function, add a function-call graph edge.
+            */
+            macro_function_call_record(name, line, i, macro_def, func_def_array, caller_index, func_call_array);
+        }
+    }
+}
+
+void macro_defs_dependencies_get(struct Lexed_Files lexed_files, struct Macro_Def_Array all_macro_defs, struct Macro_Def_Array *used_macro_defs, struct Func_Def_Array func_def_array, int caller_index, struct Func_Call_Array *func_call_array)
+{
+    /* By AI */
+    for (size_t i = 0; i < used_macro_defs->length; i++) {
+        struct Macro_Definition macro_def = used_macro_defs->elements[i];
+
+        macro_defs_used_in_macro_def_get(lexed_files, macro_def, all_macro_defs, used_macro_defs, func_def_array, caller_index, func_call_array);
+    }
+}
+
+void func_call_array_add_macro_calls(struct Lexed_Files lexed_files, struct Func_Def_Array func_def_array, struct Macro_Def_Array all_macro_defs, struct Func_Call_Array *func_call_array)
+{
+    /* By AI */
+    for (size_t i = 0; i < func_def_array.length; i++) {
+        struct Macro_Def_Array used_macros = {0};
+        ada_init_array(struct Macro_Definition, used_macros);
+
+        macro_defs_used_in_func_def_get(lexed_files, func_def_array.elements[i], all_macro_defs, &used_macros);
+        macro_defs_dependencies_get(lexed_files, all_macro_defs, &used_macros, func_def_array, (int)i, func_call_array);
+
+        AL_FREE(used_macros.elements);
     }
 }
 
@@ -950,14 +1285,14 @@ int main(int argc, char const *argv[])
     struct Func_Call_Array func_call_array = {0};
     ada_init_array(struct Function_Call, func_call_array);
     func_call_array_get_from_func_def_array(lexed_files, func_def_array, &func_call_array);
-    // func_call_array_print(func_call_array);
 
-    // size_t file_index = 0;
-    // struct Tokens tokens = lexed_files.elements[file_index];
-    // for (size_t i = 0; i < tokens.length; i++) {
-    //     printf("%zu: ", i);
-    //     al_token_print(tokens.elements[i]);
-    // }
+    struct Macro_Def_Array macro_def_array = {0};
+    ada_init_array(struct Macro_Definition, macro_def_array);
+    if (FAIL == macro_definitions_get_from_lexed_files(lexed_files, &macro_def_array)) {
+        al_dprintERROR("%s", "Could not get macro definitions.");
+        return -1;
+    }
+    func_call_array_add_macro_calls(lexed_files, func_def_array, macro_def_array, &func_call_array);
 
     int entry_func_index = func_def_index_get_by_name(func_def_array, entry_function_name);
     if (entry_func_index < 0) {
@@ -968,18 +1303,11 @@ int main(int argc, char const *argv[])
     struct Func_Def_Array func_defs_to_print = {0};
     ada_init_array(struct Function_Definition, func_defs_to_print);
     func_defs_to_print_get_from_func_def_index(func_def_array, func_call_array, entry_func_index, &func_defs_to_print);
-    // func_def_array_print(func_defs_to_print);
     
-    struct Macro_Def_Array macro_def_array = {0};
-    ada_init_array(struct Macro_Definition, macro_def_array);
-    if (FAIL == macro_definitions_get_from_lexed_files(lexed_files, &macro_def_array)) {
-        al_dprintERROR("%s", "Could not get macro definitions from lexed files.");
-        return -1;
-    }
-
     struct Macro_Def_Array used_macro_defs = {0};
     ada_init_array(struct Macro_Definition, used_macro_defs);
     macro_defs_used_in_func_def_array_get(lexed_files, func_defs_to_print, macro_def_array, &used_macro_defs);
+    macro_defs_dependencies_get(lexed_files, macro_def_array, &used_macro_defs, func_def_array, -1, &func_call_array);
     
     macro_def_array_content_print_to_output_target(output_target, used_macro_defs, lexed_files);
     func_def_array_content_print_to_output_target(output_target, func_defs_to_print, lexed_files);
@@ -996,5 +1324,6 @@ int main(int argc, char const *argv[])
     AL_FREE(func_call_array.elements);
     AL_FREE(macro_def_array.elements);
     AL_FREE(used_macro_defs.elements);
+
     return 0;
 }
