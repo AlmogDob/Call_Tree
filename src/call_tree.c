@@ -1,4 +1,8 @@
-#include <stdio.h>
+#include <stdio.h> 
+ 
+// #define AMD_MEMORY_DEBUG
+// #define ALMOG_MEMORY_DEBUG_IMPLEMENTATION
+// #include "./includes/Almog_Memory_Debug.h"
 
 #define ALMOG_LEXER_IMPLEMENTATION
 #define ALMOG_STRING_MANIPULATION_IMPLEMENTATION
@@ -70,6 +74,18 @@ struct Macro_Def_Array {
     size_t length;
     size_t capacity;
     struct Macro_Definition *elements;
+};
+
+struct Type_Declaration {
+    size_t file_index;
+    size_t token_start_index;
+    size_t token_end_index;
+};
+
+struct Type_Declaration_Array {
+    struct Type_Declaration *elements;
+    size_t length;
+    size_t capacity;
 };
 
 struct Apm_Word_Array word_array_alloc() 
@@ -1188,6 +1204,664 @@ void func_call_array_add_macro_calls(struct Lexed_Files lexed_files, struct Func
     }
 }
 
+static size_t type_next_nontrivia(struct Tokens tokens, size_t index)
+{
+    /* By AI */
+    while (index < tokens.length) {
+        enum Token_Kind kind = tokens.elements[index].kind;
+        if (kind != TOKEN_COMMENT && kind != TOKEN_PP_DIRECTIVE) {
+            break;
+        }
+        index++;
+    }
+
+    return index;
+}
+
+static bool token_starts_type_declaration(struct Tokens tokens, size_t index)
+{
+    /* By AI */
+    if (index >= tokens.length) {
+        return false;
+    }
+
+    struct Token token = tokens.elements[index];
+
+    if (al_token_text_equals_str(token, "typedef")) {
+        return true;
+    }
+
+    bool is_tag =
+        al_token_text_equals_str(token, "struct") ||
+        al_token_text_equals_str(token, "union") ||
+        al_token_text_equals_str(token, "enum");
+
+    if (!is_tag) {
+        return false;
+    }
+
+    size_t next = type_next_nontrivia(tokens, index + 1);
+
+    /* Optional struct/union/enum tag name. */
+    if (next < tokens.length && tokens.elements[next].kind == TOKEN_IDENTIFIER) {
+        next = type_next_nontrivia(tokens, next + 1);
+    }
+
+    if (next >= tokens.length) {
+        return false;
+    }
+
+    enum Token_Kind kind = tokens.elements[next].kind;
+
+    return kind == TOKEN_LBRACE || kind == TOKEN_SEMICOLON;
+}
+
+static bool declaration_end_get(struct Tokens tokens, size_t start, size_t *end_out)
+{
+    /* By AI */
+    size_t braces = 0;
+    size_t parentheses = 0;
+    size_t brackets = 0;
+
+    for (size_t i = start; i < tokens.length; i++) {
+        enum Token_Kind kind = tokens.elements[i].kind;
+
+        switch (kind) {
+            case TOKEN_LBRACE:
+                braces++;
+                break;
+
+            case TOKEN_RBRACE:
+                if (braces == 0) {
+                    return false;
+                }
+                braces--;
+                break;
+
+            case TOKEN_LPAREN:
+                parentheses++;
+                break;
+
+            case TOKEN_RPAREN:
+                if (parentheses == 0) {
+                    return false;
+                }
+                parentheses--;
+                break;
+
+            case TOKEN_LBRACKET:
+                brackets++;
+                break;
+
+            case TOKEN_RBRACKET:
+                if (brackets == 0) {
+                    return false;
+                }
+                brackets--;
+                break;
+
+            case TOKEN_SEMICOLON:
+                if (braces == 0 && parentheses == 0 && brackets == 0) {
+                    *end_out = i;
+                    return true;
+                }
+                break;
+
+            case TOKEN_EOF:
+                return false;
+
+            default:
+                break;
+        }
+    }
+
+    return false;
+}
+
+static bool function_range_end_get(struct Func_Def_Array functions, size_t file_index, size_t token_index, size_t *end_out)
+{
+    /* By AI */
+    for (size_t i = 0; i < functions.length; i++) {
+        struct Function_Definition function = functions.elements[i];
+
+        if (function.file_index < 0 || (size_t)function.file_index != file_index) {
+            continue;
+        }
+
+        if (token_index >= function.token_start_index && token_index <= function.token_end_index) {
+            *end_out = function.token_end_index;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool type_declarations_get_from_lexed_files(struct Lexed_Files files, struct Func_Def_Array functions, struct Type_Declaration_Array *declarations)
+{
+    /* By AI */
+    if (declarations == NULL) {
+        return FAIL;
+    }
+
+    for (size_t file_index = 0; file_index < files.length;
+         file_index++) {
+        struct Tokens tokens = files.elements[file_index];
+        size_t i = 0;
+
+        while (i < tokens.length) {
+            i = type_next_nontrivia(tokens, i);
+
+            if (i >= tokens.length || tokens.elements[i].kind == TOKEN_EOF) {
+                break;
+            }
+
+            size_t end = 0;
+
+            if (function_range_end_get(functions, file_index, i, &end)) {
+                i = end + 1;
+                continue;
+            }
+
+            bool is_type = token_starts_type_declaration(tokens, i);
+
+            if (!declaration_end_get(tokens, i, &end)) {
+                al_dprintERROR("Could not find declaration end in '%s' " "at line %zu.", tokens.file_path, tokens.elements[i].location.line_num);
+                return FAIL;
+            }
+
+            if (is_type) {
+                struct Type_Declaration declaration = {
+                    .file_index = file_index,
+                    .token_start_index = i,
+                    .token_end_index = end,
+                };
+
+                ada_appand(struct Type_Declaration, *declarations, declaration);
+            }
+
+            i = end + 1;
+        }
+    }
+
+    return SUCCESS;
+}
+
+void type_declarations_print_to_output_target(FILE *output_target, struct Type_Declaration_Array declarations, struct Lexed_Files files)
+{
+    /* By AI */
+    for (size_t i = 0; i < declarations.length; i++) {
+        struct Type_Declaration declaration = declarations.elements[i];
+        struct Tokens tokens = files.elements[declaration.file_index];
+        struct Token first = tokens.elements[declaration.token_start_index];
+        struct Token last = tokens.elements[declaration.token_end_index];
+        const char *begin = first.text;
+        const char *end = last.text + last.text_len;
+
+        fwrite(begin, 1, (size_t)(end - begin), output_target);
+        fputs("\n\n", output_target);
+    }
+}
+
+static bool type_token_is( struct Tokens tokens, size_t index, const char *text)
+{
+    /* By AI */
+    return index < tokens.length && al_token_text_equals_str(tokens.elements[index], text);
+}
+
+static bool type_skip_balanced(struct Tokens tokens, size_t *index, size_t end, enum Token_Kind open, enum Token_Kind close)
+{
+    /* By AI */
+    if (*index >= end || tokens.elements[*index].kind != open) {
+        return false;
+    }
+
+    size_t depth = 0;
+
+    while (*index < end) {
+        enum Token_Kind kind = tokens.elements[*index].kind;
+        (*index)++;
+
+        if (kind == open) {
+            depth++;
+        } else if (kind == close) {
+            depth--;
+
+            if (depth == 0) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+static bool type_is_pointer_qualifier(struct Tokens tokens, size_t index)
+{
+    /* By AI */
+    return type_token_is(tokens, index, "const") ||
+           type_token_is(tokens, index, "volatile") ||
+           type_token_is(tokens, index, "restrict") ||
+           type_token_is(tokens, index, "_Atomic");
+}
+
+/*
+ * Parse a declarator and return the token containing its declared name.
+ *
+ * Examples:
+ *     Name
+ *     *Name
+ *     Name[10]
+ *     (*Name)(int)
+ */
+static bool type_declarator_name_get(struct Tokens tokens, size_t *index, size_t end, size_t *name_index)
+{
+    /* By AI */
+    *index = type_next_nontrivia(tokens, *index);
+
+    while (*index < end && tokens.elements[*index].kind == TOKEN_STAR) {
+        (*index)++;
+        *index = type_next_nontrivia(tokens, *index);
+
+        while (*index < end && type_is_pointer_qualifier(tokens, *index)) {
+            (*index)++;
+            *index = type_next_nontrivia(tokens, *index);
+        }
+    }
+
+    if (*index >= end) {
+        return false;
+    }
+
+    if (tokens.elements[*index].kind == TOKEN_IDENTIFIER) {
+        *name_index = *index;
+        (*index)++;
+    } else if (tokens.elements[*index].kind == TOKEN_LPAREN) {
+        (*index)++;
+
+        if (!type_declarator_name_get(tokens, index, end, name_index)) {
+            return false;
+        }
+
+        *index = type_next_nontrivia(tokens, *index);
+
+        if (*index >= end ||
+            tokens.elements[*index].kind != TOKEN_RPAREN) {
+            return false;
+        }
+
+        (*index)++;
+    } else {
+        return false;
+    }
+
+    for (;;) {
+        *index = type_next_nontrivia(tokens, *index);
+
+        if (*index >= end) {
+            return true;
+        }
+
+        enum Token_Kind kind = tokens.elements[*index].kind;
+
+        if (kind == TOKEN_LBRACKET) {
+            if (!type_skip_balanced(tokens, index, end, TOKEN_LBRACKET, TOKEN_RBRACKET)) {
+                return false;
+            }
+        } else if (kind == TOKEN_LPAREN) {
+            if (!type_skip_balanced(tokens, index, end, TOKEN_LPAREN, TOKEN_RPAREN)) {
+                return false;
+            }
+        } else {
+            return true;
+        }
+    }
+}
+
+static bool typedef_declarators_start_get(struct Tokens tokens, struct Type_Declaration declaration, size_t *start_out)
+{
+    /* By AI */
+    size_t i = declaration.token_start_index;
+    size_t end = declaration.token_end_index;
+
+    if (!type_token_is(tokens, i, "typedef")) {
+        return false;
+    }
+
+    i++;
+    bool have_type = false;
+
+    while (i < end) {
+        i = type_next_nontrivia(tokens, i);
+
+        if (i >= end) {
+            return false;
+        }
+
+        if (type_token_is(tokens, i, "struct") ||
+            type_token_is(tokens, i, "union") ||
+            type_token_is(tokens, i, "enum")) {
+            i++;
+            i = type_next_nontrivia(tokens, i);
+
+            if (i < end &&
+                tokens.elements[i].kind == TOKEN_IDENTIFIER) {
+                i++;
+                i = type_next_nontrivia(tokens, i);
+            }
+
+            if (i < end &&
+                tokens.elements[i].kind == TOKEN_LBRACE) {
+                if (!type_skip_balanced(tokens, &i, end, TOKEN_LBRACE, TOKEN_RBRACE)) {
+                    return false;
+                }
+            }
+
+            have_type = true;
+            continue;
+        }
+
+        if (type_is_pointer_qualifier(tokens, i)) {
+            /*
+             * Handle the type-specifier form _Atomic(T).
+             * Plain _Atomic is a qualifier.
+             */
+            bool atomic = type_token_is(tokens, i, "_Atomic");
+            i++;
+            i = type_next_nontrivia(tokens, i);
+
+            if (atomic && i < end &&
+                tokens.elements[i].kind == TOKEN_LPAREN) {
+                if (!type_skip_balanced(tokens, &i, end, TOKEN_LPAREN, TOKEN_RPAREN)) {
+                    return false;
+                }
+
+                have_type = true;
+            }
+
+            continue;
+        }
+
+        /*
+         * Ordinary built-in type specifiers, such as unsigned,
+         * long, int, void, and double, are keyword tokens.
+         */
+        if (tokens.elements[i].kind == TOKEN_KEYWORD) {
+            have_type = true;
+            i++;
+            continue;
+        }
+
+        /*
+         * A typedef name used as the underlying type:
+         *
+         *     typedef Existing_Type New_Type;
+         */
+        if (!have_type && tokens.elements[i].kind == TOKEN_IDENTIFIER) {
+            have_type = true;
+            i++;
+            continue;
+        }
+
+        break;
+    }
+
+    *start_out = i;
+    return have_type && i < end;
+}
+
+static bool type_declaration_provides_name(struct Tokens tokens, struct Type_Declaration declaration, struct Token reference)
+{
+    /* By AI */
+    size_t start = declaration.token_start_index;
+    size_t end = declaration.token_end_index;
+    size_t braces = 0;
+
+    bool enum_body = false;
+    bool expect_enum_name = false;
+    size_t enum_parentheses = 0;
+    size_t enum_brackets = 0;
+    size_t enum_braces = 0;
+
+    for (size_t i = start; i < end; i++) {
+        struct Token token = tokens.elements[i];
+
+        if (token.kind == TOKEN_COMMENT || token.kind == TOKEN_PP_DIRECTIVE) {
+            continue;
+        }
+
+        /*
+         * A top-level tag in this declaration:
+         *
+         *     struct Node { ... };
+         *     typedef struct Node Node;
+         */
+        if (braces == 0 &&
+            (type_token_is(tokens, i, "struct") ||
+             type_token_is(tokens, i, "union") ||
+             type_token_is(tokens, i, "enum"))) {
+            bool is_enum = type_token_is(tokens, i, "enum");
+            size_t next = type_next_nontrivia(tokens, i + 1);
+
+            if (next < end && tokens.elements[next].kind == TOKEN_IDENTIFIER) {
+                struct Token name = tokens.elements[next];
+
+                if (name.text_len == reference.text_len && asm_strncmp(name.text, reference.text, name.text_len)) {
+                    return true;
+                }
+
+                next = type_next_nontrivia(tokens, next + 1);
+            }
+
+            if (is_enum && next < end && tokens.elements[next].kind == TOKEN_LBRACE) {
+                enum_body = true;
+                expect_enum_name = true;
+                enum_parentheses = 0;
+                enum_brackets = 0;
+                enum_braces = 0;
+
+                /* Continue at the first token inside the enum. */
+                i = next;
+                braces++;
+                continue;
+            }
+        }
+
+        if (enum_body) {
+            if (expect_enum_name && token.kind == TOKEN_IDENTIFIER) {
+                if (token.text_len == reference.text_len && asm_strncmp(token.text, reference.text, token.text_len)) {
+                    return true;
+                }
+
+                expect_enum_name = false;
+            }
+
+            switch (token.kind) {
+                case TOKEN_LPAREN:
+                    enum_parentheses++;
+                    break;
+
+                case TOKEN_RPAREN:
+                    if (enum_parentheses > 0) {
+                        enum_parentheses--;
+                    }
+                    break;
+
+                case TOKEN_LBRACKET:
+                    enum_brackets++;
+                    break;
+
+                case TOKEN_RBRACKET:
+                    if (enum_brackets > 0) {
+                        enum_brackets--;
+                    }
+                    break;
+
+                case TOKEN_LBRACE:
+                    enum_braces++;
+                    break;
+
+                case TOKEN_RBRACE:
+                    if (enum_braces > 0) {
+                        enum_braces--;
+                    } else {
+                        enum_body = false;
+                    }
+                    break;
+
+                case TOKEN_COMMA:
+                    if (enum_parentheses == 0 && enum_brackets == 0 && enum_braces == 0) {
+                        expect_enum_name = true;
+                    }
+                    break;
+
+                default:
+                    break;
+            }
+        }
+
+        if (token.kind == TOKEN_LBRACE) {
+            braces++;
+        } else if (token.kind == TOKEN_RBRACE && braces > 0) {
+            braces--;
+        }
+    }
+
+    /* Check the aliases introduced by a typedef. */
+    size_t i = 0;
+
+    if (!typedef_declarators_start_get(tokens, declaration, &i)) {
+        return false;
+    }
+
+    while (i < end) {
+        size_t name_index = 0;
+
+        if (!type_declarator_name_get(tokens, &i, end, &name_index)) {
+            return false;
+        }
+
+        struct Token name = tokens.elements[name_index];
+
+        if (name.text_len == reference.text_len &&
+            asm_strncmp(name.text, reference.text, name.text_len)) {
+            return true;
+        }
+
+        i = type_next_nontrivia(tokens, i);
+
+        if (i >= end ||
+            tokens.elements[i].kind != TOKEN_COMMA) {
+            break;
+        }
+
+        i++;
+    }
+
+    return false;
+}
+
+static void type_declarations_mark_for_identifier(struct Lexed_Files files, struct Type_Declaration_Array declarations, struct Token reference, unsigned char *selected)
+{
+    /* By AI */
+    if (reference.kind != TOKEN_IDENTIFIER) {
+        return;
+    }
+
+    for (size_t i = 0; i < declarations.length; i++) {
+        if (selected[i]) {
+            continue;
+        }
+
+        struct Type_Declaration declaration = declarations.elements[i];
+        struct Tokens tokens = files.elements[declaration.file_index];
+
+        if (type_declaration_provides_name(tokens, declaration, reference)) {
+            selected[i] = 1;
+        }
+    }
+}
+
+static void type_declarations_mark_for_range(struct Lexed_Files files, struct Type_Declaration_Array declarations, struct Tokens tokens, size_t start, size_t end, unsigned char *selected)
+{
+    /* By AI */
+    for (size_t i = start; i <= end; i++) {
+        type_declarations_mark_for_identifier(files, declarations, tokens.elements[i], selected);
+    }
+}
+
+bool relevant_type_declarations_get(struct Lexed_Files files, struct Type_Declaration_Array all_types, struct Func_Def_Array selected_functions, struct Type_Declaration_Array *relevant_types)
+{
+    /* By AI */
+    if (relevant_types == NULL) {
+        return FAIL;
+    }
+
+    if (all_types.length == 0) {
+        return SUCCESS;
+    }
+
+    unsigned char *selected = AL_MALLOC(all_types.length);
+
+    if (selected == NULL) {
+        al_dprintERROR("%s", "Could not allocate type-selection state.");
+        return FAIL;
+    }
+
+    memset(selected, 0, all_types.length);
+
+    /*
+     * Seed dependencies from the entire selected function:
+     * return type, parameters, and body.
+     */
+    for (size_t i = 0; i < selected_functions.length; i++) {
+        struct Function_Definition function = selected_functions.elements[i];
+        struct Tokens tokens = files.elements[function.file_index];
+
+        type_declarations_mark_for_range(files, all_types, tokens, function.token_start_index, function.token_end_index, selected);
+    }
+
+    /*
+     * Expand dependencies until every selected declaration
+     * has been scanned.
+     */
+    for (;;) {
+        bool scanned_any = false;
+
+        for (size_t i = 0; i < all_types.length; i++) {
+            /**
+             * state = 0 -> not selected.
+             * state = 1 -> selected dependencies not scanned.
+             * state = 2 -> selected dependencies scanned.
+             */
+            if (selected[i] != 1) {
+                continue;
+            }
+
+            selected[i] = 2;
+            scanned_any = true;
+
+            struct Type_Declaration declaration = all_types.elements[i];
+            struct Tokens tokens = files.elements[declaration.file_index];
+
+            type_declarations_mark_for_range(files, all_types, tokens, declaration.token_start_index, declaration.token_end_index, selected);
+        }
+
+        if (!scanned_any) {
+            break;
+        }
+    }
+
+    for (size_t i = 0; i < all_types.length; i++) {
+        if (selected[i] != 0) {
+            ada_appand(struct Type_Declaration, *relevant_types, all_types.elements[i]);
+        }
+    }
+
+    AL_FREE(selected);
+    return SUCCESS;
+}
+
 int main(int argc, char const *argv[])
 {
     FILE *output_target = stdout;
@@ -1280,7 +1954,13 @@ int main(int argc, char const *argv[])
         al_dprintERROR("%s", "Could not get function definitions from lexes files.");
         return -1;
     }
-    // func_def_array_print(func_def_array);
+
+    struct Type_Declaration_Array type_declarations = {0};
+    ada_init_array(struct Type_Declaration, type_declarations);
+    if (FAIL == type_declarations_get_from_lexed_files( lexed_files, func_def_array, &type_declarations)) {
+        al_dprintERROR("%s", "Could not collect type declarations.");
+        return -1;
+    }
 
     struct Func_Call_Array func_call_array = {0};
     ada_init_array(struct Function_Call, func_call_array);
@@ -1303,13 +1983,23 @@ int main(int argc, char const *argv[])
     struct Func_Def_Array func_defs_to_print = {0};
     ada_init_array(struct Function_Definition, func_defs_to_print);
     func_defs_to_print_get_from_func_def_index(func_def_array, func_call_array, entry_func_index, &func_defs_to_print);
+
+    struct Type_Declaration_Array relevant_types = {0};
+    ada_init_array(struct Type_Declaration, relevant_types);
+    if (FAIL == relevant_type_declarations_get(lexed_files, type_declarations, func_defs_to_print, &relevant_types)) {
+        al_dprintERROR("%s", "Could not select relevant type declarations.");
+        return -1;
+    }
     
     struct Macro_Def_Array used_macro_defs = {0};
     ada_init_array(struct Macro_Definition, used_macro_defs);
     macro_defs_used_in_func_def_array_get(lexed_files, func_defs_to_print, macro_def_array, &used_macro_defs);
     macro_defs_dependencies_get(lexed_files, macro_def_array, &used_macro_defs, func_def_array, -1, &func_call_array);
     
+    /* printing to output target */
     macro_def_array_content_print_to_output_target(output_target, used_macro_defs, lexed_files);
+    type_declarations_print_to_output_target(output_target, type_declarations, lexed_files);
+    // type_declarations_print_to_output_target(output_target, relevant_types, lexed_files);
     func_def_array_content_print_to_output_target(output_target, func_defs_to_print, lexed_files);
 
 
@@ -1324,6 +2014,15 @@ int main(int argc, char const *argv[])
     AL_FREE(func_call_array.elements);
     AL_FREE(macro_def_array.elements);
     AL_FREE(used_macro_defs.elements);
+    AL_FREE(func_defs_to_print.elements);
+    AL_FREE(type_declarations.elements);
+    AL_FREE(relevant_types.elements);
+
+    // if (AMD_FAIL == amd_debug_mem()) {
+    //     amd_dprintERROR("%s", "Corrupted memory detected.");
+    //     return -1;
+    // }
+    // amd_debug_mem_print(0);
 
     return 0;
 }
